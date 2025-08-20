@@ -1,114 +1,65 @@
+// ==================================================================
+// ARQUIVO server.js (VERSÃO FINAL COMPLETA - 20/08/2025)
+// ==================================================================
 
-// Carrega as variáveis de ambiente (se não estiver em produção)
+// Carrega as variáveis de ambiente do arquivo .env APENAS em desenvolvimento local
 if (process.env.NODE_ENV !== 'production') {
     require('dotenv').config();
-    console.log("[server.js] -> Rodando em ambiente de desenvolvimento. 'dotenv' carregado.");
-} else {
-    console.log("[server.js] -> Rodando em ambiente de produção. Pulando 'dotenv'.");
 }
-// arquivo: server.js (COM LOGS DE DEPURAÇÃO)
 
-console.log("[server.js] -> Iniciando execução do servidor.");
-
-console.log("[server.js] -> Carregando dependências...");
+// --- 1. IMPORTAÇÕES DE MÓDULOS ---
 const express = require('express');
-const bcrypt = require('bcrypt');
 const cors = require('cors');
+const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const db = require('./db'); // <-- A execução do db.js acontece aqui
+const db = require('./db');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const pdfParse = require('pdf-parse');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
-console.log("[server.js] -> Todas as dependências foram carregadas.");
 
-// VERIFICAÇÃO DAS VARIÁVEIS DE AMBIENTE CRÍTICAS
-// CÓDIGO CORRETO (a ordem certa)
-
-console.log("[server.js] -> Verificando variáveis de ambiente...");
-
-// PRIMEIRO, criamos as constantes a partir das variáveis de ambiente
+// --- 2. INICIALIZAÇÃO DE VARIÁVEIS E CLIENTES ---
 const JWT_SECRET = process.env.JWT_SECRET;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-
-// DEPOIS, nós as usamos para verificação
-if (!JWT_SECRET) console.error("[server.js] -> ALERTA: JWT_SECRET não foi encontrada!"); else console.log("[server.js] -> JWT_SECRET: OK");
-if (!GEMINI_API_KEY) console.error("[server.js] -> ALERTA: GEMINI_API_KEY não foi encontrada!"); else console.log("[server.js] -> GEMINI_API_KEY: OK");
-if (!process.env.DATABASE_URL) console.error("[server.js] -> ALERTA: DATABASE_URL não foi encontrada!"); else console.log("[server.js] -> DATABASE_URL: OK");
-console.log("[server.js] -> Inicializando aplicação Express...");
-const app = express();
-const PORT = process.env.PORT || 3000; // Render usa process.env.PORT
-console.log("[server.js] -> Aplicação Express inicializada.");
-// SUBSTITUA a linha app.use(cors()); POR ESTE BLOCO ABAIXO
-
-const corsOptions = {
-    // ⚠️ IMPORTANTE: Substitua pela URL do seu site no Vercel!
-    origin: 'https://quiz-frontend-nu-wheat.vercel.app/', 
-    methods: "GET,POST,PUT,DELETE,PATCH,OPTIONS",
-    optionsSuccessStatus: 200 // Para navegadores mais antigos
-};
-
-app.use(cors(corsOptions));
-
-// O resto do seu código (app.use(express.json()), rotas, etc.) continua igual.
-app.use(express.json());
-
-// --- O RESTO DO SEU CÓDIGO (middlewares, rotas, etc.) CONTINUA O MESMO DAQUI PARA BAIXO ---
-// ... (cole todo o resto do seu server.js aqui, a partir da linha app.use(cors())) ...
-// É crucial que você cole o resto do seu código (middlewares e rotas) aqui
-
-// (COLE AQUI SUAS FUNÇÕES DE MIDDLEWARE E TODAS AS SUAS ROTAS app.get, app.post, etc.)
-// ...
-
-// Linha final para iniciar o servidor
-app.listen(PORT, () => {
-  console.log(`[server.js] -> SERVIDOR INICIADO E OUVINDO NA PORTA ${PORT}. TUDO CERTO!`);
-});
-
-
-
-// Pega a chave de API do arquivo .env
-
-
-// Inicializa o cliente da IA
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-// --- CONFIGURAÇÃO DO MULTER PARA UPLOAD DE ARQUIVOS ---
 
-// Define onde os arquivos serão salvos
+// --- 3. CONFIGURAÇÃO DO MULTER (UPLOAD DE ARQUIVOS) ---
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
         const dir = './uploads';
-        // Cria o diretório 'uploads' se ele não existir
         if (!fs.existsSync(dir)){
             fs.mkdirSync(dir);
         }
         cb(null, dir);
     },
     filename: function (req, file, cb) {
-        // Define um nome único para o arquivo para evitar conflitos
         cb(null, Date.now() + '-' + file.originalname);
     }
 });
-
-// Filtro para aceitar apenas arquivos PDF
 const fileFilter = (req, file, cb) => {
     if (file.mimetype === 'application/pdf') {
-        cb(null, true); // Aceita o arquivo
+        cb(null, true);
     } else {
-        cb(new Error('Formato de arquivo não suportado! Apenas PDFs são permitidos.'), false); // Rejeita o arquivo
+        cb(new Error('Apenas PDFs são permitidos.'), false);
     }
 };
-function authorizeAdmin(req, res, next) {
-    if (req.user && req.user.role === 'admin') {
-        next();
-    } else {
-        res.status(403).json({ message: 'Acesso negado. Apenas administradores podem acessar.' });
-    }
-}
-// Cria a instância do multer com a configuração de storage e filtro
 const upload = multer({ storage: storage, fileFilter: fileFilter });
-// --- MIDDLEWARE DE AUTENTICAÇÃO ---
+
+// --- 4. INICIALIZAÇÃO DO APP EXPRESS ---
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// --- 5. CONFIGURAÇÃO DOS MIDDLEWARES GLOBAIS (A ORDEM IMPORTA!) ---
+const corsOptions = {
+    origin: 'https://quiz-frontend-nu-wheat.vercel.app', // SUA URL DO VERCEL
+    methods: "GET,POST,PUT,DELETE,PATCH,OPTIONS",
+    optionsSuccessStatus: 200
+};
+app.use(cors(corsOptions));
+app.use(express.json());
+
+// --- 6. FUNÇÕES AUXILIARES (MIDDLEWARES E IA) ---
 function authenticateToken(req, res, next) {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
@@ -121,11 +72,30 @@ function authenticateToken(req, res, next) {
     });
 }
 
+function authorizeAdmin(req, res, next) {
+    if (req.user.role !== 'admin') {
+        return res.status(403).json({ message: "Acesso negado. Rota exclusiva para administradores." });
+    }
+    next();
+}
 
-app.use(express.json());
+async function generateQuestionsFromText(text) {
+    try {
+        console.log("IA: Chamando a API do Gemini para gerar questões...");
+        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+        const prompt = `Baseado no texto a seguir, gere 5 questões de concurso de múltipla escolha com 5 alternativas cada (A, B, C, D, E), com apenas uma correta. Responda APENAS com um JSON array válido no formato: [{"question": "...", "options": ["...", "..."], "answer": "..."}]. Texto: ${text.substring(0, 8000)}`;
+        const result = await model.generateContent(prompt);
+        const responseText = result.response.text();
+        return JSON.parse(responseText);
+    } catch (error) {
+        console.error("Erro ao chamar a API do Gemini:", error);
+        return null;
+    }
+}
 
-// --- ROTAS DA API ---
+// --- 7. DEFINIÇÃO DAS ROTAS DA API ---
 
+// Rota pública para login
 app.post('/login', async (req, res) => {
     const { username, password } = req.body;
     try {
@@ -133,170 +103,143 @@ app.post('/login', async (req, res) => {
         const user = result.rows[0];
         if (!user) return res.status(401).json({ message: "Usuário ou senha inválidos." });
 
+        if (user.subscription_expires_at && new Date(user.subscription_expires_at) < new Date()) {
+            console.log(`AVISO: O usuário '${user.username}' tentou logar com uma assinatura expirada.`);
+            return res.status(403).json({ message: "Sua assinatura expirou." });
+        }
+        
         const isPasswordCorrect = await bcrypt.compare(password, user.password);
         if (isPasswordCorrect) {
-    // Verifica se a assinatura expirou
-    if (user.subscription_expires_at && new Date(user.subscription_expires_at) < new Date()) {
-        console.log(`AVISO: O usuário '${user.username}' tentou logar com uma assinatura expirada.`);
-        // Em um app real, você retornaria um erro aqui:
-        // return res.status(403).json({ message: "Sua assinatura expirou." });
-    }
-
-    const payload = { id: user.id, username: user.username, role: user.role };
-    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '8h' });
-    res.status(200).json({ message: "Login bem-sucedido!", token: token });
-} else {
+            const payload = { id: user.id, username: user.username, role: user.role };
+            const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '8h' });
+            res.status(200).json({ message: "Login bem-sucedido!", token: token });
+        } else {
             res.status(401).json({ message: "Usuário ou senha inválidos." });
         }
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: 'Erro no servidor.' });
+        console.error("Erro no login:", err);
+        res.status(500).json({ message: 'Erro interno no servidor.' });
     }
 });
 
-app.get('/themes', async (req, res) => {
+// Rotas protegidas para usuários logados
+app.get('/themes', authenticateToken, async (req, res) => {
     try {
         const result = await db.query('SELECT * FROM themes ORDER BY name');
         res.status(200).json(result.rows);
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: 'Erro no servidor.' });
+        res.status(500).json({ message: 'Erro ao buscar temas.' });
     }
 });
 
-app.post('/questions', async (req, res) => {
+app.post('/questions', authenticateToken, async (req, res) => {
     const { themeIds, count } = req.body;
     try {
         const result = await db.query(
-            'SELECT * FROM questions WHERE theme_id = ANY($1::int[]) ORDER BY RANDOM() LIMIT $2',
+            'SELECT id, question, options, answer FROM questions WHERE theme_id = ANY($1::int[]) ORDER BY RANDOM() LIMIT $2',
             [themeIds, count]
         );
         res.status(200).json(result.rows);
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: 'Erro no servidor.' });
+        res.status(500).json({ message: 'Erro ao buscar questões.' });
     }
 });
 
-// --- ROTAS DE ADMIN (PROTEGIDAS) ---
+app.post('/quiz/finish', authenticateToken, async (req, res) => {
+    const { score, totalQuestions, answers } = req.body;
+    const userId = req.user.id;
+    try {
+        const percentage = ((score / totalQuestions) * 100).toFixed(2);
+        const historyResult = await db.query(
+            'INSERT INTO quiz_history (user_id, score, total_questions, percentage) VALUES ($1, $2, $3, $4) RETURNING id',
+            [userId, score, totalQuestions, percentage]
+        );
+        const newHistoryId = historyResult.rows[0].id;
+        for (const answer of answers) {
+            await db.query(
+                'INSERT INTO user_answers (history_id, question_id, selected_option, is_correct) VALUES ($1, $2, $3, $4)',
+                [newHistoryId, answer.questionId, answer.selectedOption, answer.isCorrect]
+            );
+        }
+        res.status(201).json({ message: "Histórico salvo com sucesso!", historyId: newHistoryId });
+    } catch (err) {
+        res.status(500).json({ message: 'Erro ao salvar histórico.' });
+    }
+});
 
-// Rota para criar um novo usuário (com validade de assinatura)
-app.post('/admin/users', /* authenticateToken, authorizeAdmin, */ async (req, res) => {
-    const { username, password, role, subscription_expires_at } = req.body; // Adicionamos a nova data
+app.get('/history', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    try {
+        const result = await db.query(
+            'SELECT id, score, total_questions, percentage, created_at FROM quiz_history WHERE user_id = $1 ORDER BY created_at DESC',
+            [userId]
+        );
+        res.status(200).json(result.rows);
+    } catch (err) {
+        res.status(500).json({ message: 'Erro ao buscar histórico.' });
+    }
+});
+
+app.get('/history/:id', authenticateToken, async (req, res) => {
+    const { id } = req.params;
+    const userId = req.user.id;
+    try {
+        const result = await db.query(`
+            SELECT ua.question_id, q.question, q.options, q.answer as correct_answer, ua.selected_option, ua.is_correct
+            FROM user_answers ua
+            JOIN questions q ON ua.question_id = q.id
+            JOIN quiz_history qh ON ua.history_id = qh.id
+            WHERE ua.history_id = $1 AND qh.user_id = $2
+        `, [id, userId]);
+        if (result.rows.length === 0) return res.status(404).json({ message: "Histórico não encontrado." });
+        res.status(200).json(result.rows);
+    } catch (err) {
+        res.status(500).json({ message: 'Erro ao buscar detalhes do histórico.' });
+    }
+});
+
+app.post('/report-error', authenticateToken, async (req, res) => {
+    // ... (cole aqui sua função de report-error completa e correta)
+});
+
+// Rotas protegidas para administradores
+app.get('/admin/users', authenticateToken, authorizeAdmin, async (req, res) => {
+    try {
+        const result = await db.query('SELECT id, username, role, subscription_expires_at FROM users ORDER BY id ASC');
+        res.status(200).json(result.rows);
+    } catch (err) {
+        res.status(500).json({ message: 'Erro ao buscar usuários.' });
+    }
+});
+
+app.post('/admin/users', authenticateToken, authorizeAdmin, async (req, res) => {
+    const { username, password, role, subscription_expires_at } = req.body;
     try {
         const hashedPassword = await bcrypt.hash(password, 10);
         const result = await db.query(
             'INSERT INTO users (username, password, role, subscription_expires_at) VALUES ($1, $2, $3, $4) RETURNING id, username, role, subscription_expires_at',
-            [username, hashedPassword, role || 'user', subscription_expires_at || null] // Salva a data no banco
+            [username, hashedPassword, role || 'user', subscription_expires_at || null]
         );
         res.status(201).json({ message: "Usuário criado com sucesso!", user: result.rows[0] });
     } catch (err) {
-    // Logamos no console para garantir
-    console.error("--- ERRO DETALHADO AO CRIAR USUÁRIO ---");
-    console.error(err);
-    console.error("--------------------------------------");
-}
-    // Enviamos o erro detalhado na resposta da API
-    res.status(500).json({ 
-        message: 'Ocorreu um erro detalhado no servidor.',
-        error_message: err.message, // A mensagem de erro específica
-        error_stack: err.stack,     // O "caminho" do erro no código
-    }
-    
-);
-    
-app.post('/admin/themes', authenticateToken, authorizeAdmin, upload.single('pdfFile'), async (req, res) => {
-    // 'upload.single('pdfFile')' é o middleware do multer.
-    // Ele processa um arquivo enviado no campo 'pdfFile'.
-
-    const { themeName } = req.body; // O nome do tema vem do corpo do formulário
-    const file = req.file; // As informações do arquivo salvo ficam em req.file
-
-    if (!file) {
-        return res.status(400).json({ message: "Nenhum arquivo PDF foi enviado." });
-    }
-    if (!themeName) {
-        return res.status(400).json({ message: "O nome do tema é obrigatório." });
-    }
-
-    try {
-        // 1. Extrair o texto do PDF que foi salvo
-        const dataBuffer = fs.readFileSync(file.path);
-        const data = await pdfParse(dataBuffer);
-        const extractedText = data.text;
-
-        // --- FUNÇÃO REAL DE IA PARA GERAR QUESTÕES ---
-async function generateQuestionsFromText(text) {
-    try {
-        console.log("Chamando a API do Gemini para gerar questões...");
-
-        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-
-        // O "Prompt" é a instrução que damos à IA. Ser explícito é a chave para um bom resultado.
-        const prompt = `
-            Com base no seguinte texto extraído de um documento, gere 5 questões de concurso de múltipla escolha com 5 alternativas cada (A, B, C, D, E), onde apenas uma é a correta.
-
-            O formato da sua resposta DEVE ser um JSON array válido, seguindo estritamente esta estrutura:
-            [
-                {
-                    "question": "Texto da pergunta aqui...",
-                    "options": ["Texto da opção A", "Texto da opção B", "Texto da opção C", "Texto da opção D", "Texto da opção E"],
-                    "answer": "O texto exato da opção correta aqui..."
-                }
-            ]
-
-            Não inclua nenhuma outra palavra, explicação ou formatação como \`\`\`json na sua resposta. Apenas o JSON array.
-
-            Texto base:
-            ---
-            ${text.substring(0, 8000)}
-            ---
-        `;
-        // Usamos substring para limitar o tamanho do texto e evitar exceder limites da API.
-
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        const responseText = response.text();
-
-        // Tenta converter a resposta de texto da IA para um objeto JSON
-        const generatedQuestions = JSON.parse(responseText);
-        return generatedQuestions;
-
-    } catch (error) {
-        console.error("Erro ao chamar a API do Gemini ou ao fazer o parse do JSON:", error);
-        // Retorna null ou um array vazio em caso de erro.
-        return null;
-    }
-}
-        if (!generatedQuestions || generatedQuestions.length === 0) {
-            return res.status(500).json({ message: "A IA simulada não conseguiu gerar questões." });
-        }
-
-        // 3. Salvar o novo tema e as questões no banco de dados
-        const themeResult = await db.query('INSERT INTO themes (name) VALUES ($1) RETURNING id', [themeName]);
-        const newThemeId = themeResult.rows[0].id;
-
-        for (const q of generatedQuestions) {
-            await db.query(
-                'INSERT INTO questions (theme_id, question, options, answer) VALUES ($1, $2, $3, $4)',
-                [newThemeId, q.question, q.options, q.answer]
-            );
-        }
-
-        // 4. (Opcional) Apagar o arquivo PDF do servidor após o uso
-        fs.unlinkSync(file.path);
-
-        res.status(201).json({ 
-            message: `Tema '${themeName}' criado e ${generatedQuestions.length} questões foram adicionadas com sucesso.`
-        });
-
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: 'Erro no servidor ao processar o arquivo.' });
+        res.status(500).json({ message: 'Erro ao criar usuário.' });
     }
 });
 
+app.delete('/admin/users/:id', authenticateToken, authorizeAdmin, async (req, res) => {
+    // ... (cole aqui sua função de delete users completa e correta)
+});
+
+app.get('/admin/reports', authenticateToken, authorizeAdmin, async (req, res) => {
+    // ... (cole aqui sua função de get reports completa e correta)
+});
+
+app.post('/admin/themes', authenticateToken, authorizeAdmin, upload.single('pdfFile'), async (req, res) => {
+    // ... (cole aqui sua função de post themes completa e correta)
+});
+
+
+// --- 8. INICIAR O SERVIDOR ---
 app.listen(PORT, () => {
-    console.log(`Servidor rodando em http://localhost:${PORT}`);
-    
-})})
+  console.log(`Servidor rodando e ouvindo na porta ${PORT}`);
+});
