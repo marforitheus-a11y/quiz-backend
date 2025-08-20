@@ -23,12 +23,18 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 console.log("[server.js] -> Todas as dependências foram carregadas.");
 
 // VERIFICAÇÃO DAS VARIÁVEIS DE AMBIENTE CRÍTICAS
+// CÓDIGO CORRETO (a ordem certa)
+
 console.log("[server.js] -> Verificando variáveis de ambiente...");
 
+// PRIMEIRO, criamos as constantes a partir das variáveis de ambiente
+const JWT_SECRET = process.env.JWT_SECRET;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
+// DEPOIS, nós as usamos para verificação
 if (!JWT_SECRET) console.error("[server.js] -> ALERTA: JWT_SECRET não foi encontrada!"); else console.log("[server.js] -> JWT_SECRET: OK");
 if (!GEMINI_API_KEY) console.error("[server.js] -> ALERTA: GEMINI_API_KEY não foi encontrada!"); else console.log("[server.js] -> GEMINI_API_KEY: OK");
 if (!process.env.DATABASE_URL) console.error("[server.js] -> ALERTA: DATABASE_URL não foi encontrada!"); else console.log("[server.js] -> DATABASE_URL: OK");
-
 console.log("[server.js] -> Inicializando aplicação Express...");
 const app = express();
 const PORT = process.env.PORT || 3000; // Render usa process.env.PORT
@@ -47,11 +53,11 @@ app.use(express.json());
 app.listen(PORT, () => {
   console.log(`[server.js] -> SERVIDOR INICIADO E OUVINDO NA PORTA ${PORT}. TUDO CERTO!`);
 });
-const JWT_SECRET = 'Realmadry19*';
+
 
 
 // Pega a chave de API do arquivo .env
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
 
 // Inicializa o cliente da IA
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
