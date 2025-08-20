@@ -1,16 +1,19 @@
-// arquivo: db.js
+// arquivo: db.js (MODIFICADO)
 const { Pool } = require('pg');
+require('dotenv').config();
 
-// Configura a conexão com o banco de dados PostgreSQL que está rodando no Docker
+const isProduction = process.env.NODE_ENV === 'production';
+
+const connectionString = isProduction 
+    ? process.env.DATABASE_URL // URL do banco da Render
+    : `postgresql://${process.env.DB_USER}:${process.env.DB_PASSWORD}@${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_DATABASE}`;
+
 const pool = new Pool({
-    user: 'postgres',
-    host: 'localhost',
-    database: 'postgres', // O banco de dados padrão do PostgreSQL
-    password: 'mysecretpassword',
-    port: 5432,
+    connectionString: connectionString,
+    // Adiciona configuração SSL para produção
+    ssl: isProduction ? { rejectUnauthorized: false } : false
 });
 
-// Exporta uma função que podemos usar para fazer queries
 module.exports = {
     query: (text, params) => pool.query(text, params),
 };
