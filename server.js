@@ -1,4 +1,6 @@
-require('dotenv').config();
+if (process.env.NODE_ENV !== 'production') {
+    require('dotenv').config();
+}
 // arquivo: server.js (versão final com JWT)
 const multer = require('multer');
 const path = require('path'); // Módulo para lidar com caminhos de arquivos

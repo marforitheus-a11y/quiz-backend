@@ -1,6 +1,9 @@
 // arquivo: db.js (MODIFICADO)
 const { Pool } = require('pg');
-require('dotenv').config();
+// Carrega as variáveis de ambiente do arquivo .env APENAS em desenvolvimento
+if (process.env.NODE_ENV !== 'production') {
+    require('dotenv').config();
+}
 
 const isProduction = process.env.NODE_ENV === 'production';
 
