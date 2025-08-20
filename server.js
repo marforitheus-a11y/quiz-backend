@@ -40,7 +40,18 @@ console.log("[server.js] -> Inicializando aplicação Express...");
 const app = express();
 const PORT = process.env.PORT || 3000; // Render usa process.env.PORT
 console.log("[server.js] -> Aplicação Express inicializada.");
-app.use(cors());
+// SUBSTITUA a linha app.use(cors()); POR ESTE BLOCO ABAIXO
+
+const corsOptions = {
+    // ⚠️ IMPORTANTE: Substitua pela URL do seu site no Vercel!
+    origin: 'https://quiz-frontend-nu-wheat.vercel.app/', 
+    methods: "GET,POST,PUT,DELETE,PATCH,OPTIONS",
+    optionsSuccessStatus: 200 // Para navegadores mais antigos
+};
+
+app.use(cors(corsOptions));
+
+// O resto do seu código (app.use(express.json()), rotas, etc.) continua igual.
 app.use(express.json());
 
 // --- O RESTO DO SEU CÓDIGO (middlewares, rotas, etc.) CONTINUA O MESMO DAQUI PARA BAIXO ---
