@@ -130,7 +130,7 @@ app.post('/questions', async (req, res) => {
 // --- ROTAS DE ADMIN (PROTEGIDAS) ---
 
 // Rota para criar um novo usuário (com validade de assinatura)
-app.post('/admin/users', authenticateToken, authorizeAdmin, async (req, res) => {
+app.post('/admin/users', /* authenticateToken, authorizeAdmin, */ async (req, res) => {
     const { username, password, role, subscription_expires_at } = req.body; // Adicionamos a nova data
     try {
         const hashedPassword = await bcrypt.hash(password, 10);
