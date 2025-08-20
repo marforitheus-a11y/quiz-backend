@@ -1,22 +1,54 @@
+// arquivo: server.js (COM LOGS DE DEPURAÇÃO)
+console.log("[server.js] -> Iniciando execução do servidor.");
+
+// Carrega as variáveis de ambiente (se não estiver em produção)
 if (process.env.NODE_ENV !== 'production') {
     require('dotenv').config();
+    console.log("[server.js] -> Rodando em ambiente de desenvolvimento. 'dotenv' carregado.");
+} else {
+    console.log("[server.js] -> Rodando em ambiente de produção. Pulando 'dotenv'.");
 }
-// arquivo: server.js (versão final com JWT)
-const multer = require('multer');
-const path = require('path'); // Módulo para lidar com caminhos de arquivos
-const fs = require('fs'); // Módulo para interagir com o sistema de arquivos
-const pdfParse = require('pdf-parse');
+
+console.log("[server.js] -> Carregando dependências...");
 const express = require('express');
 const bcrypt = require('bcrypt');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
-const db = require('./db');
-
-const app = express();
-const PORT = 3000;
-
-const JWT_SECRET = 'seu-segredo-super-secreto-e-longo-aqui-12345';
+const db = require('./db'); // <-- A execução do db.js acontece aqui
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const pdfParse = require('pdf-parse');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
+console.log("[server.js] -> Todas as dependências foram carregadas.");
+
+// VERIFICAÇÃO DAS VARIÁVEIS DE AMBIENTE CRÍTICAS
+console.log("[server.js] -> Verificando variáveis de ambiente...");
+
+if (!JWT_SECRET) console.error("[server.js] -> ALERTA: JWT_SECRET não foi encontrada!"); else console.log("[server.js] -> JWT_SECRET: OK");
+if (!GEMINI_API_KEY) console.error("[server.js] -> ALERTA: GEMINI_API_KEY não foi encontrada!"); else console.log("[server.js] -> GEMINI_API_KEY: OK");
+if (!process.env.DATABASE_URL) console.error("[server.js] -> ALERTA: DATABASE_URL não foi encontrada!"); else console.log("[server.js] -> DATABASE_URL: OK");
+
+console.log("[server.js] -> Inicializando aplicação Express...");
+const app = express();
+const PORT = process.env.PORT || 3000; // Render usa process.env.PORT
+console.log("[server.js] -> Aplicação Express inicializada.");
+
+// --- O RESTO DO SEU CÓDIGO (middlewares, rotas, etc.) CONTINUA O MESMO DAQUI PARA BAIXO ---
+// ... (cole todo o resto do seu server.js aqui, a partir da linha app.use(cors())) ...
+// É crucial que você cole o resto do seu código (middlewares e rotas) aqui
+app.use(cors());
+app.use(express.json());
+
+// (COLE AQUI SUAS FUNÇÕES DE MIDDLEWARE E TODAS AS SUAS ROTAS app.get, app.post, etc.)
+// ...
+
+// Linha final para iniciar o servidor
+app.listen(PORT, () => {
+  console.log(`[server.js] -> SERVIDOR INICIADO E OUVINDO NA PORTA ${PORT}. TUDO CERTO!`);
+});
+const JWT_SECRET = 'Realmadry19*';
+
 
 // Pega a chave de API do arquivo .env
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
