@@ -1,5 +1,3 @@
-// arquivo: server.js (COM LOGS DE DEPURAÇÃO)
-console.log("[server.js] -> Iniciando execução do servidor.");
 
 // Carrega as variáveis de ambiente (se não estiver em produção)
 if (process.env.NODE_ENV !== 'production') {
@@ -8,6 +6,9 @@ if (process.env.NODE_ENV !== 'production') {
 } else {
     console.log("[server.js] -> Rodando em ambiente de produção. Pulando 'dotenv'.");
 }
+// arquivo: server.js (COM LOGS DE DEPURAÇÃO)
+
+console.log("[server.js] -> Iniciando execução do servidor.");
 
 console.log("[server.js] -> Carregando dependências...");
 const express = require('express');
@@ -21,6 +22,9 @@ const fs = require('fs');
 const pdfParse = require('pdf-parse');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 console.log("[server.js] -> Todas as dependências foram carregadas.");
+
+app.use(cors());
+app.use(express.json());
 
 // VERIFICAÇÃO DAS VARIÁVEIS DE AMBIENTE CRÍTICAS
 // CÓDIGO CORRETO (a ordem certa)
@@ -43,8 +47,6 @@ console.log("[server.js] -> Aplicação Express inicializada.");
 // --- O RESTO DO SEU CÓDIGO (middlewares, rotas, etc.) CONTINUA O MESMO DAQUI PARA BAIXO ---
 // ... (cole todo o resto do seu server.js aqui, a partir da linha app.use(cors())) ...
 // É crucial que você cole o resto do seu código (middlewares e rotas) aqui
-app.use(cors());
-app.use(express.json());
 
 // (COLE AQUI SUAS FUNÇÕES DE MIDDLEWARE E TODAS AS SUAS ROTAS app.get, app.post, etc.)
 // ...
@@ -110,7 +112,6 @@ function authenticateToken(req, res, next) {
 }
 
 
-app.use(cors());
 app.use(express.json());
 
 // --- ROTAS DA API ---
