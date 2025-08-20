@@ -140,10 +140,19 @@ app.post('/admin/users', /* authenticateToken, authorizeAdmin, */ async (req, re
         );
         res.status(201).json({ message: "Usuário criado com sucesso!", user: result.rows[0] });
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: 'Erro ao criar usuário.' });
+    // Logamos no console para garantir
+    console.error("--- ERRO DETALHADO AO CRIAR USUÁRIO ---");
+    console.error(err);
+    console.error("--------------------------------------");
+}
+    // Enviamos o erro detalhado na resposta da API
+    res.status(500).json({ 
+        message: 'Ocorreu um erro detalhado no servidor.',
+        error_message: err.message, // A mensagem de erro específica
+        error_stack: err.stack,     // O "caminho" do erro no código
     }
-});
+    
+);
     
 app.post('/admin/themes', authenticateToken, authorizeAdmin, upload.single('pdfFile'), async (req, res) => {
     // 'upload.single('pdfFile')' é o middleware do multer.
@@ -238,4 +247,5 @@ async function generateQuestionsFromText(text) {
 
 app.listen(PORT, () => {
     console.log(`Servidor rodando em http://localhost:${PORT}`);
-});
+    
+})})
