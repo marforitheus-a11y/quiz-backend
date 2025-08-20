@@ -23,9 +23,6 @@ const pdfParse = require('pdf-parse');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 console.log("[server.js] -> Todas as dependências foram carregadas.");
 
-app.use(cors());
-app.use(express.json());
-
 // VERIFICAÇÃO DAS VARIÁVEIS DE AMBIENTE CRÍTICAS
 // CÓDIGO CORRETO (a ordem certa)
 
@@ -43,6 +40,8 @@ console.log("[server.js] -> Inicializando aplicação Express...");
 const app = express();
 const PORT = process.env.PORT || 3000; // Render usa process.env.PORT
 console.log("[server.js] -> Aplicação Express inicializada.");
+app.use(cors());
+app.use(express.json());
 
 // --- O RESTO DO SEU CÓDIGO (middlewares, rotas, etc.) CONTINUA O MESMO DAQUI PARA BAIXO ---
 // ... (cole todo o resto do seu server.js aqui, a partir da linha app.use(cors())) ...
