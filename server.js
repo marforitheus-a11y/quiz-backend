@@ -325,16 +325,34 @@ app.post('/admin/themes', authenticateToken, authorizeAdmin, upload.single('pdfF
     }
 });
 
+// SUBSTITUA A ROTA DE DELETAR TEMA PELA VERSÃO ABAIXO em server.js
+
 app.delete('/admin/themes/:id', authenticateToken, authorizeAdmin, async (req, res) => {
     const { id } = req.params;
     try {
+        // Passo 1: Encontrar todas as IDs das questões associadas ao tema que será apagado.
+        const questionsResult = await db.query('SELECT id FROM questions WHERE theme_id = $1', [id]);
+        const questionIds = questionsResult.rows.map(q => q.id);
+
+        // Passo 2: Se existirem questões, apagar todas as entradas na tabela 'user_answers'
+        // que fazem referência a essas questões.
+        if (questionIds.length > 0) {
+            await db.query('DELETE FROM user_answers WHERE question_id = ANY($1::int[])', [questionIds]);
+        }
+
+        // Passo 3: Agora que as dependências foram removidas, apagar o tema.
+        // Graças ao "ON DELETE CASCADE" que definimos, ao apagar o tema, o PostgreSQL
+        // automaticamente apagará todas as questões associadas a ele.
         const result = await db.query('DELETE FROM themes WHERE id = $1 RETURNING name', [id]);
+
         if (result.rowCount === 0) {
             return res.status(404).json({ message: "Tema não encontrado." });
         }
-        res.status(200).json({ message: `Tema '${result.rows[0].name}' e todas as suas questões foram apagados com sucesso.` });
+
+        res.status(200).json({ message: `Tema '${result.rows[0].name}' e todo o seu histórico foram apagados com sucesso.` });
+        
     } catch (err) {
-        console.error("Erro ao apagar tema:", err);
+        console.error("Erro ao apagar tema e suas dependências:", err);
         res.status(500).json({ message: 'Erro no servidor ao apagar o tema.' });
     }
 });
