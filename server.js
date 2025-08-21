@@ -36,6 +36,8 @@ const storage = multer.diskStorage({
 const upload = multer({ storage: storage, fileFilter: (req, file, cb) => file.mimetype === 'application/pdf' ? cb(null, true) : cb(new Error('Apenas PDFs são permitidos.'), false) });
 
 // --- 4. SIMULAÇÃO DE SESSÕES ATIVAS ---
+// Perto do topo do server.js
+let globalMessage = null;
 let activeSessions = {};
 
 // --- 5. INICIALIZAÇÃO DO APP EXPRESS ---
@@ -73,7 +75,7 @@ function authorizeAdmin(req, res, next) {
 async function generateQuestionsFromText(text) {
     try {
         console.log("IA: Chamando a API do Gemini para gerar questões...");
-        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
         const prompt = `Baseado no texto a seguir, gere 5 questões de concurso de múltipla escolha com 5 alternativas cada (A, B, C, D, E), com apenas uma correta. Responda APENAS com um JSON array válido no formato: [{"question": "...", "options": ["...", "..."], "answer": "..."}]. Texto: ${text.substring(0, 8000)}`;
         const result = await model.generateContent(prompt);
         const responseText = result.response.text();
@@ -213,6 +215,33 @@ app.post('/report-error', authenticateToken, async (req, res) => {
 });
 
 // ROTAS DE ADMIN
+app.post('/admin/broadcast', authenticateToken, authorizeAdmin, (req, res) => {
+    const { message } = req.body;
+    if (!message) {
+        return res.status(400).json({ message: "O conteúdo da mensagem é obrigatório." });
+    }
+
+    globalMessage = {
+        content: message,
+        timestamp: new Date()
+    };
+
+    // A mensagem ficará disponível por 1 minuto
+    setTimeout(() => {
+        globalMessage = null;
+    }, 60000);
+
+    res.status(200).json({ message: "Mensagem global enviada com sucesso e ficará ativa por 1 minuto." });
+});
+
+// Adicione esta rota na seção de ROTAS DE USUÁRIO
+app.get('/message', authenticateToken, (req, res) => {
+    if (globalMessage) {
+        return res.status(200).json(globalMessage);
+    } else {
+        return res.status(204).send(); // 204 No Content - significa "sem conteúdo novo"
+    }
+});
 app.get('/admin/sessions', authenticateToken, authorizeAdmin, (req, res) => {
     res.status(200).json(activeSessions);
 });
