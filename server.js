@@ -76,13 +76,30 @@ async function generateQuestionsFromText(text) {
     try {
         console.log("IA: Chamando a API do Gemini para gerar questões...");
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
-        const prompt = `Baseado no texto a seguir, gere 5 questões de concurso de múltipla escolha com 5 alternativas cada (A, B, C, D, E), com apenas uma correta. Responda APENAS com um JSON array válido no formato: [{"question": "...", "options": ["...", "..."], "answer": "..."}]. Texto: ${text.substring(0, 8000)}`;
+        const prompt = `Baseado no texto a seguir, gere 5 questões de concurso de múltipla escolha com 5 alternativas cada (A, B, C, D, E), com apenas uma correta. Responda APENAS com um JSON array válido no formato: [{"question": "...", "options": ["...", "..."], "answer": "..."}]. Texto: ${text.substring(0, 1000000)}`;
+        
         const result = await model.generateContent(prompt);
-        const responseText = result.response.text();
+        let responseText = result.response.text();
+
+        // --- AQUI ESTÁ A CORREÇÃO ---
+        // Limpa a resposta da IA, removendo o Markdown "```json" e os "```" do final.
+        console.log("IA: Resposta bruta recebida:", responseText);
+        
+        // Remove qualquer texto antes do início do array '[' e depois do final do array ']'
+        const jsonMatch = responseText.match(/(\[[\s\S]*\])/);
+
+        if (jsonMatch && jsonMatch[0]) {
+            responseText = jsonMatch[0];
+            console.log("IA: JSON extraído com sucesso.");
+        } else {
+            throw new Error("Não foi possível encontrar um JSON válido na resposta da IA.");
+        }
+        
         return JSON.parse(responseText);
+
     } catch (error) {
         console.error("Erro ao chamar a API do Gemini ou ao fazer o parse do JSON:", error);
-        throw new Error("A IA não conseguiu gerar as questões. Verifique o formato do PDF ou a chave da API.");
+        throw new Error("A IA não conseguiu gerar as questões. A resposta não estava no formato JSON esperado.");
     }
 }
 
