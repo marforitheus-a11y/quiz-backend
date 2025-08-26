@@ -1,5 +1,5 @@
 // ==================================================================
-// ARQUIVO server.js (VERSÃO FINAL E COMPLETA)
+// ARQUIVO server.js (VERSÃO FINAL COMPLETA)
 // ==================================================================
 
 if (process.env.NODE_ENV !== 'production') {
@@ -17,10 +17,13 @@ const path = require('path');
 const fs = require('fs');
 const pdfParse = require('pdf-parse');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
+const axios = require('axios');
+const FormData = require('form-data');
 
 // --- 2. INICIALIZAÇÃO DE VARIÁVEIS E CLIENTES ---
 const JWT_SECRET = process.env.JWT_SECRET;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const IMGBB_API_KEY = process.env.IMGBB_API_KEY;
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
 // --- 3. CONFIGURAÇÃO DO MULTER (UPLOAD DE ARQUIVOS) ---
@@ -32,7 +35,7 @@ const storage = multer.diskStorage({
     },
     filename: (req, file, cb) => cb(null, Date.now() + '-' + file.originalname)
 });
-const upload = multer({ storage: storage, fileFilter: (req, file, cb) => file.mimetype === 'application/pdf' ? cb(null, true) : cb(new Error('Apenas PDFs são permitidos.'), false) });
+const upload = multer({ storage: storage });
 
 // --- 4. VARIÁVEIS GLOBAIS EM MEMÓRIA ---
 let activeSessions = {};
@@ -90,11 +93,34 @@ async function generateQuestionsFromText(text, count) {
 
 // --- 8. ROTAS DA API ---
 
-// ROTA DE LOGIN E LOGOUT
-app.post('/login', async (req, res) => {
-    const { username, password } = req.body;
+// ROTA DE CADASTRO (NOVA)
+app.post('/signup', async (req, res) => {
+    const { name, email, password } = req.body;
+    if (!name || !email || !password) {
+        return res.status(400).json({ message: "Nome, e-mail e senha são obrigatórios." });
+    }
     try {
-        const result = await db.query('SELECT * FROM users WHERE username = $1', [username]);
+        const existingUser = await db.query('SELECT * FROM users WHERE username = $1 OR email = $2', [name, email]);
+        if (existingUser.rows.length > 0) {
+            return res.status(409).json({ message: "Nome de usuário ou e-mail já cadastrado." });
+        }
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const result = await db.query(
+            'INSERT INTO users (name, username, email, password, role) VALUES ($1, $2, $3, $4, $5) RETURNING id, name, username, role',
+            [name, name, email, hashedPassword, 'user']
+        );
+        res.status(201).json({ message: "Conta criada com sucesso!", user: result.rows[0] });
+    } catch (err) {
+        console.error("Erro no cadastro:", err);
+        res.status(500).json({ message: 'Erro interno no servidor ao criar a conta.' });
+    }
+});
+
+// ROTA DE LOGIN (ATUALIZADA)
+app.post('/login', async (req, res) => {
+    const { loginIdentifier, password } = req.body;
+    try {
+        const result = await db.query('SELECT * FROM users WHERE username = $1 OR email = $1', [loginIdentifier]);
         const user = result.rows[0];
         if (!user) return res.status(401).json({ message: "Usuário ou senha inválidos." });
 
@@ -121,9 +147,33 @@ app.post('/logout', (req, res) => {
     const { username } = req.body;
     if (username && activeSessions[username]) {
         delete activeSessions[username];
-        console.log(`Sessão do usuário ${username} encerrada.`);
     }
     res.status(200).json({ message: "Logout bem-sucedido."});
+});
+
+// ROTA DE CONTA
+app.get('/account/me', authenticateToken, async (req, res) => {
+    try {
+        const result = await db.query(
+            'SELECT username, name, subscription_expires_at FROM users WHERE id = $1',
+            [req.user.id]
+        );
+        res.status(200).json(result.rows[0]);
+    } catch (err) {
+        res.status(500).json({ message: 'Erro ao buscar dados da conta.' });
+    }
+});
+app.put('/account/me', authenticateToken, async (req, res) => {
+    const { name } = req.body;
+    try {
+        const result = await db.query(
+            'UPDATE users SET name = $1 WHERE id = $2 RETURNING id, username, name',
+            [name, req.user.id]
+        );
+        res.status(200).json(result.rows[0]);
+    } catch (err) {
+        res.status(500).json({ message: 'Erro ao atualizar o nome.' });
+    }
 });
 
 // ROTAS DE USUÁRIO
@@ -225,14 +275,29 @@ app.post('/report-error', authenticateToken, async (req, res) => {
 });
 
 // ROTAS DE ADMIN
-app.post('/admin/broadcast', authenticateToken, authorizeAdmin, (req, res) => {
+app.post('/admin/broadcast', authenticateToken, authorizeAdmin, upload.single('image'), async (req, res) => {
     const { message } = req.body;
-    if (!message) {
-        return res.status(400).json({ message: "O conteúdo da mensagem é obrigatório." });
+    const file = req.file;
+    if (!message && !file) {
+        return res.status(400).json({ message: "É necessário enviar uma mensagem ou uma imagem." });
     }
-    globalMessage = { content: message, timestamp: new Date() };
+    let imageUrl = null;
+    if (file) {
+        try {
+            const formData = new FormData();
+            formData.append('image', fs.createReadStream(file.path));
+            const response = await axios.post(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, formData, { headers: formData.getHeaders() });
+            imageUrl = response.data.data.url;
+        } catch (error) {
+            console.error("Erro no upload para ImgBB:", error.response?.data);
+            return res.status(500).json({ message: "Erro ao processar a imagem." });
+        } finally {
+            if (file && file.path) { fs.unlinkSync(file.path); }
+        }
+    }
+    globalMessage = { content: message || '', imageUrl: imageUrl, timestamp: new Date() };
     setTimeout(() => { globalMessage = null; }, 60000);
-    res.status(200).json({ message: "Mensagem global enviada com sucesso e ficará ativa por 1 minuto." });
+    res.status(200).json({ message: "Mensagem global enviada com sucesso!" });
 });
 
 app.get('/admin/sessions', authenticateToken, authorizeAdmin, (req, res) => {
@@ -325,34 +390,21 @@ app.post('/admin/themes', authenticateToken, authorizeAdmin, upload.single('pdfF
     }
 });
 
-// SUBSTITUA A ROTA DE DELETAR TEMA PELA VERSÃO ABAIXO em server.js
-
 app.delete('/admin/themes/:id', authenticateToken, authorizeAdmin, async (req, res) => {
     const { id } = req.params;
     try {
-        // Passo 1: Encontrar todas as IDs das questões associadas ao tema que será apagado.
         const questionsResult = await db.query('SELECT id FROM questions WHERE theme_id = $1', [id]);
         const questionIds = questionsResult.rows.map(q => q.id);
-
-        // Passo 2: Se existirem questões, apagar todas as entradas na tabela 'user_answers'
-        // que fazem referência a essas questões.
         if (questionIds.length > 0) {
             await db.query('DELETE FROM user_answers WHERE question_id = ANY($1::int[])', [questionIds]);
         }
-
-        // Passo 3: Agora que as dependências foram removidas, apagar o tema.
-        // Graças ao "ON DELETE CASCADE" que definimos, ao apagar o tema, o PostgreSQL
-        // automaticamente apagará todas as questões associadas a ele.
         const result = await db.query('DELETE FROM themes WHERE id = $1 RETURNING name', [id]);
-
         if (result.rowCount === 0) {
             return res.status(404).json({ message: "Tema não encontrado." });
         }
-
-        res.status(200).json({ message: `Tema '${result.rows[0].name}' e todo o seu histórico foram apagados com sucesso.` });
-        
+        res.status(200).json({ message: `Tema '${result.rows[0].name}' e suas questões foram apagados com sucesso.` });
     } catch (err) {
-        console.error("Erro ao apagar tema e suas dependências:", err);
+        console.error("Erro ao apagar tema:", err);
         res.status(500).json({ message: 'Erro no servidor ao apagar o tema.' });
     }
 });
