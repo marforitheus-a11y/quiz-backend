@@ -1,4 +1,3 @@
-version: '3.8'
 services:
 #  postgres:
 #    image: postgres:15
@@ -34,18 +33,17 @@ services:
 
   api:
     build: .
-    command: ["uvicorn", "app.app:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
-    dns: 8.8.8.8  # <--- ALTERAÇÃO ADICIONADA
+    # --- CORREÇÃO APLICADA AQUI ---
+    command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    dns: 8.8.8.8
     depends_on:
       - redis
-      # - postgres  <-- REMOVIDO
       - faiss
     volumes:
       - ./app:/app
       - faiss_data:/data
     environment:
-      # A variável mais importante que sua app deve usar para conectar ao BD externo
-      - DATABASE_URL=${DATABASE_URL} 
+      - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
       - GITHUB_TOKEN=${GITHUB_TOKEN}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
@@ -62,14 +60,13 @@ services:
 
   worker:
     build: .
-    command: ["celery", "-A", "app.worker", "worker", "--loglevel=info", "-Q", "default"]
-    dns: 8.8.8.8  # <--- ALTERAÇÃO ADICIONADA
+    # --- CORREÇÃO APLICADA AQUI ---
+    command: ["celery", "-A", "worker", "worker", "--loglevel=info", "-Q", "default"]
+    dns: 8.8.8.8
     depends_on:
       - redis
       - faiss
-      # - postgres <-- REMOVIDO
     environment:
-      # O worker também precisa da URL do banco de dados para se conectar
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
