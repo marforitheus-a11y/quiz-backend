@@ -1,13 +1,13 @@
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import JSONResponse
-from .utils import save_upload_file, log_prompt
-from .worker import process_pdf
-from .db_models import init_db
-from .config import PROJECT_CLONE_PATH, PROMPTS_LOG
-from .embeddings_utils import encode_texts
+from utils import save_upload_file, log_prompt
+from worker import process_pdf
+from db_models import init_db
+from config import PROJECT_CLONE_PATH, PROMPTS_LOG
+from embeddings_utils import encode_texts
 import requests, os, json, shutil
-from .gemini_client import ask_gemini
-from .github_integration import git_clone_repo, create_branch_and_push, create_pr_via_api
+from gemini_client import ask_gemini
+from github_integration import git_clone_repo, create_branch_and_push, create_pr_via_api
 
 app = FastAPI(title="AI Assistant API")
 
