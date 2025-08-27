@@ -72,7 +72,7 @@ def modify_frontend(request: FrontendChangeRequest):
         # LÓGICA DE MODIFICAÇÃO (PRIMEIRO TESTE)
         # ADAPTE AS DUAS LINHAS ABAIXO PARA ALGO QUE EXISTA NO SEU ARQUIVO DE LOGIN
         # =============================================================================
-        texto_original = "Login"  # Ex: O texto dentro de um <h1> ou <title>
+        texto_original = "Entrar"  # Ex: O texto dentro de um <h1> ou <title>
         texto_modificado = "Login Modificado pelo Assistente AI"
         
         if texto_original not in content:
