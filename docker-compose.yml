@@ -1,0 +1,91 @@
+version: '3.8'
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sa_password}
+      POSTGRES_DB: ${POSTGRES_DB:-ai_assistant}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - ai-net
+
+  redis:
+    image: redis:7
+    command: ["redis-server", "--save", "60", "1"]
+    volumes:
+      - redisdata:/data
+    networks:
+      - ai-net
+
+  faiss:
+    build: .
+    command: ["python", "app/faiss_service.py"]
+    volumes:
+      - faiss_data:/data
+    environment:
+      - FAISS_INDEX_PATH=/data/faiss/index.faiss
+      - FAISS_META_PATH=/data/faiss/meta.json
+    ports:
+      - "8003:8003"
+    networks:
+      - ai-net
+
+  api:
+    build: .
+    command: ["uvicorn", "app.app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+    depends_on:
+      - redis
+      - postgres
+      - faiss
+    volumes:
+      - ./app:/app
+      - faiss_data:/data
+    environment:
+      - REDIS_URL=${REDIS_URL}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_API_URL=${GEMINI_API_URL}
+      - PROJECT_CLONE_PATH=${PROJECT_CLONE_PATH}
+      - UPLOADS_PATH=${UPLOADS_PATH}
+      - PROMPTS_LOG=${PROMPTS_LOG}
+      - GITHUB_HOST=${GITHUB_HOST}
+      - REPO_NAME=${REPO_NAME}
+    ports:
+      - "8000:8000"
+    networks:
+      - ai-net
+
+  worker:
+    build: .
+    command: ["celery", "-A", "app.worker", "worker", "--loglevel=info", "-Q", "default"]
+    depends_on:
+      - redis
+      - faiss
+      - postgres
+    environment:
+      - REDIS_URL=${REDIS_URL}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_API_URL=${GEMINI_API_URL}
+      - PROMPTS_LOG=${PROMPTS_LOG}
+      - UPLOADS_PATH=${UPLOADS_PATH}
+      - FAISS_INDEX_PATH=${FAISS_INDEX_PATH}
+      - FAISS_META_PATH=${FAISS_META_PATH}
+    volumes:
+      - ./app:/app
+      - faiss_data:/data
+    networks:
+      - ai-net
+
+volumes:
+  pgdata:
+  redisdata:
+  faiss_data:
+
+networks:
+  ai-net:
+    driver: bridge
