@@ -1,10 +1,10 @@
 # Celery tasks: process PDFs, create embeddings, call Gemini to generate Qs
 from celery import Celery
 import os, json, requests
-from .config import REDIS_URL, FAISS_INDEX_PATH, FAISS_META_PATH, GEMINI_API_URL, GEMINI_API_KEY
-from .embeddings_utils import encode_texts
-from .utils import log_prompt
-from .db_models import SessionLocal, Question, init_db
+from config import REDIS_URL, FAISS_INDEX_PATH, FAISS_META_PATH, GEMINI_API_URL, GEMINI_API_KEY
+from embeddings_utils import encode_texts
+from utils import log_prompt
+from db_models import SessionLocal, Question, init_db
 from pypdf import PdfReader
 
 app = Celery('tasks', broker=os.getenv("REDIS_URL", REDIS_URL))

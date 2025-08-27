@@ -2,7 +2,7 @@ import os
 import subprocess
 import json
 import tempfile
-from .config import GITHUB_TOKEN, GITHUB_HOST, REPO_NAME, PROJECT_CLONE_PATH
+from config import GITHUB_TOKEN, GITHUB_HOST, REPO_NAME, PROJECT_CLONE_PATH
 
 def git_clone_repo():
     # clone into PROJECT_CLONE_PATH (fresh for every run)

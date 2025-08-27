@@ -1,5 +1,5 @@
 import requests, json
-from .config import GEMINI_API_KEY, GEMINI_API_URL, MAX_OUTPUT_TOKENS, TEMPERATURE
+from config import GEMINI_API_KEY, GEMINI_API_URL, MAX_OUTPUT_TOKENS, TEMPERATURE
 
 HEADERS = {"Authorization": f"Bearer {GEMINI_API_KEY}", "Content-Type": "application/json"}
 
