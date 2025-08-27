@@ -8,7 +8,23 @@ from embeddings_utils import encode_texts
 import requests, os, json, shutil
 from gemini_client import ask_gemini
 from github_integration import git_clone_repo, create_branch_and_push, create_pr_via_api
+# Em app/app.py
+from pydantic import BaseModel
 
+class FrontendChangeRequest(BaseModel):
+    prompt: str
+    # Opcional, mas recomendado para começar: especificar o arquivo a ser mudado
+    target_file: str 
+
+@app.post("/frontend/modify")
+def modify_frontend(request: FrontendChangeRequest):
+    # Aqui entrará a lógica para executar a mudança
+    prompt_do_usuario = request.prompt
+    arquivo_alvo = request.target_file
+    
+    # ... Lógica do Passo 3 ...
+    
+    return {"message": "Modificação iniciada. Verifique o novo deploy na Vercel em breve."}
 app = FastAPI(title="AI Assistant API")
 
 init_db()
