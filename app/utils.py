@@ -1,5 +1,5 @@
 import os, json, uuid
-from .config import UPLOADS_PATH, PROMPTS_LOG
+from config import UPLOADS_PATH, PROMPTS_LOG
 from datetime import datetime
 
 def save_upload_file(uploaded_file_bytes, filename=None):
