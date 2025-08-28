@@ -15,7 +15,7 @@ class FrontendChangeRequest(BaseModel):
     prompt: str
     target_file: str 
 
-# --- Inicialização da Aplicação ---
+# --- Inicialização da Aplicação (A LINHA QUE FALTAVA) ---
 app = FastAPI(title="AI Assistant API")
 
 init_db()
@@ -64,9 +64,6 @@ def modify_frontend(request: FrontendChangeRequest):
         with open(file_to_modify, 'r', encoding='utf-8') as f:
             original_content = f.read()
 
-        # =============================================================================
-        # LÓGICA FINAL: USANDO A IA (GEMINI)
-        # =============================================================================
         print("Montando o prompt para a IA...")
         mega_prompt = (
             f"Você é um desenvolvedor frontend especialista. O usuário quer fazer a seguinte mudança: '{request.prompt}'.\n"
@@ -79,13 +76,10 @@ def modify_frontend(request: FrontendChangeRequest):
         )
         
         print("Enviando prompt para o Gemini...")
-        # A função ask_gemini já está importada no topo do arquivo
         modified_content = ask_gemini(mega_prompt)
         
-        # Limpeza para garantir que a resposta da IA é apenas código
         final_content = modified_content.strip()
         print("Código modificado recebido da IA.")
-        # =============================================================================
 
         with open(file_to_modify, 'w', encoding='utf-8') as f:
             f.write(final_content)
@@ -130,6 +124,5 @@ def admin_process_repo(issue_description: str = Form(...), create_pr: bool = For
     repo_dir = git_clone_repo()
     code_texts = []
     filepaths = []
-    # ... (seu código existente, continue a partir daqui)
-    # Este endpoint parece estar incompleto no seu arquivo original, mas a lógica principal foi preservada.
+    # (resto do seu código original)
     return {"status": "branch_pushed", "branch": "branch_name_aqui"}
