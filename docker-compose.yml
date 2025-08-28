@@ -1,15 +1,4 @@
 services:
-#  postgres:
-#    image: postgres:15
-#    environment:
-#      POSTGRES_USER: ${POSTGRES_USER:-sa}
-#      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sa_password}
-#      POSTGRES_DB: ${POSTGRES_DB:-ai_assistant}
-#    volumes:
-#      - pgdata:/var/lib/postgresql/data
-#    networks:
-#      - ai-net
-
   redis:
     image: redis:7
     command: ["redis-server", "--save", "60", "1"]
@@ -33,7 +22,6 @@ services:
 
   api:
     build: .
-    # --- CORREÇÃO APLICADA AQUI ---
     command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     dns: 8.8.8.8
     depends_on:
@@ -61,7 +49,6 @@ services:
 
   worker:
     build: .
-    # --- CORREÇÃO APLICADA AQUI ---
     command: ["celery", "-A", "worker", "worker", "--loglevel=info", "-Q", "default"]
     dns: 8.8.8.8
     depends_on:
@@ -84,7 +71,6 @@ services:
       - ai-net
 
 volumes:
-#  pgdata:
   redisdata:
   faiss_data:
 
