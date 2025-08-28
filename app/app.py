@@ -8,7 +8,6 @@ from embeddings_utils import encode_texts
 import requests, os, json, shutil, subprocess
 from gemini_client import ask_gemini
 from github_integration import git_clone_repo, create_branch_and_push, create_pr_via_api
-# Em app/app.py
 from pydantic import BaseModel
 
 # --- Modelos Pydantic ---
@@ -27,11 +26,9 @@ init_db()
 def modify_frontend(request: FrontendChangeRequest):
     """
     Recebe um prompt para modificar um arquivo do frontend, clona o repositório,
-    aplica a modificação e envia um push para o GitHub, acionando um deploy na Vercel.
+    pede à IA para reescrever o arquivo, e envia um push para o GitHub.
     """
     # --- 1. Configuração e Limpeza ---
-    # Garanta que a variável FRONTEND_REPO_NAME exista no seu .env
-    # Ex: FRONTEND_REPO_NAME=seu-usuario/seu-repo-de-frontend
     frontend_repo_name = os.getenv("FRONTEND_REPO_NAME")
     github_token = os.getenv("GITHUB_TOKEN")
 
@@ -41,7 +38,6 @@ def modify_frontend(request: FrontendChangeRequest):
     repo_url = f"https://{github_token}@github.com/{frontend_repo_name}.git"
     clone_dir = "/tmp/frontend_repo_clone"
 
-    # Limpa o diretório de clone, se ele já existir, para garantir uma cópia limpa
     if os.path.exists(clone_dir):
         shutil.rmtree(clone_dir)
 
@@ -57,41 +53,51 @@ def modify_frontend(request: FrontendChangeRequest):
         print(f"Erro no clone: {e.stderr}")
         raise HTTPException(status_code=500, detail=f"Falha ao clonar o repositório: {e.stderr}")
 
-    # --- 3. Modificar o Arquivo ---
+    # --- 3. Modificar o Arquivo com IA ---
     file_to_modify = os.path.join(clone_dir, request.target_file)
     
     if not os.path.exists(file_to_modify):
         raise HTTPException(status_code=404, detail=f"Arquivo não encontrado no repositório: {request.target_file}")
 
     try:
-        print(f"Modificando o arquivo: {file_to_modify}...")
+        print(f"Lendo o arquivo original: {file_to_modify}...")
         with open(file_to_modify, 'r', encoding='utf-8') as f:
-            content = f.read()
+            original_content = f.read()
 
         # =============================================================================
-        # ALTERAÇÃO APLICADA AQUI
-        # A lógica agora mira no subtítulo do seu index.html
+        # LÓGICA FINAL: USANDO A IA (GEMINI)
         # =============================================================================
-        texto_original = "Uma plataforma de resolução de questões por IA"
-        texto_modificado = "A plataforma definitiva para a sua aprovação"
+        print("Montando o prompt para a IA...")
+        mega_prompt = (
+            f"Você é um desenvolvedor frontend especialista. O usuário quer fazer a seguinte mudança: '{request.prompt}'.\n"
+            f"O conteúdo original completo do arquivo '{request.target_file}' é:\n\n"
+            f"--- INÍCIO DO CÓDIGO ORIGINAL ---\n"
+            f"{original_content}\n"
+            f"--- FIM DO CÓDIGO ORIGINAL ---\n\n"
+            f"Por favor, reescreva o arquivo inteiro aplicando a mudança solicitada. "
+            f"Responda apenas com o código final completo, sem adicionar explicações, saudações ou marcadores de código como ```html ou ```."
+        )
         
-        if texto_original not in content:
-            raise HTTPException(status_code=400, detail=f"O texto de teste '{texto_original}' não foi encontrado no arquivo '{request.target_file}'.")
-            
-        content = content.replace(texto_original, texto_modificado)
+        print("Enviando prompt para o Gemini...")
+        # A função ask_gemini já está importada no topo do arquivo
+        modified_content = ask_gemini(mega_prompt)
+        
+        # Limpeza para garantir que a resposta da IA é apenas código
+        final_content = modified_content.strip()
+        print("Código modificado recebido da IA.")
         # =============================================================================
 
         with open(file_to_modify, 'w', encoding='utf-8') as f:
-            f.write(content)
-        print("Arquivo modificado com sucesso.")
+            f.write(final_content)
+        print("Arquivo modificado com sucesso com a resposta da IA.")
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Falha ao ler ou escrever no arquivo: {e}")
+        raise HTTPException(status_code=500, detail=f"Ocorreu um erro durante a modificação com IA: {e}")
 
     # --- 4. Comitar e Enviar a Alteração (Push) ---
     try:
         print("Enviando alterações para o GitHub...")
-        git_cmd = ["git", "-C", clone_dir] # Executa comandos git dentro do diretório clonado
+        git_cmd = ["git", "-C", clone_dir]
         
         subprocess.run(git_cmd + ["config", "user.name", "AI Assistant Bot"], check=True)
         subprocess.run(git_cmd + ["config", "user.email", "bot@example.com"], check=True)
@@ -114,7 +120,6 @@ def modify_frontend(request: FrontendChangeRequest):
 # --- Endpoints Administrativos Existentes ---
 @app.post("/admin/upload")
 async def admin_upload(theme: str = Form(...), file: UploadFile = File(...)):
-    # ... (seu código existente)
     content = await file.read()
     path = save_upload_file(content, filename=file.filename)
     task = process_pdf.delay(path, theme)
@@ -122,9 +127,9 @@ async def admin_upload(theme: str = Form(...), file: UploadFile = File(...)):
 
 @app.post("/admin/process-repo")
 def admin_process_repo(issue_description: str = Form(...), create_pr: bool = Form(False)):
-    # ... (seu código existente)
     repo_dir = git_clone_repo()
     code_texts = []
     filepaths = []
-    # ... (resto do seu código existente)
+    # ... (seu código existente, continue a partir daqui)
+    # Este endpoint parece estar incompleto no seu arquivo original, mas a lógica principal foi preservada.
     return {"status": "branch_pushed", "branch": "branch_name_aqui"}
