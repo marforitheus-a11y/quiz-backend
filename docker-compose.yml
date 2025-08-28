@@ -53,6 +53,7 @@ services:
       - PROMPTS_LOG=${PROMPTS_LOG}
       - GITHUB_HOST=${GITHUB_HOST}
       - REPO_NAME=${REPO_NAME}
+      - FRONTEND_REPO_NAME=${FRONTEND_REPO_NAME}
     ports:
       - "8000:8000"
     networks:
@@ -75,6 +76,7 @@ services:
       - UPLOADS_PATH=${UPLOADS_PATH}
       - FAISS_INDEX_PATH=${FAISS_INDEX_PATH}
       - FAISS_META_PATH=${FAISS_META_PATH}
+      - FRONTEND_REPO_NAME=${FRONTEND_REPO_NAME}
     volumes:
       - ./app:/app
       - faiss_data:/data
