@@ -1,4 +1,3 @@
-# Arquivo: app/gemini_client.py
 import requests
 import json
 import os
