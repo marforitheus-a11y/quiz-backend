@@ -1,3 +1,4 @@
+# Arquivo: app/gemini_client.py
 import requests
 import json
 import os
@@ -10,10 +11,10 @@ def ask_gemini(prompt: str) -> str:
     if not GEMINI_API_KEY:
         raise ValueError("A chave de API do Gemini (GEMINI_API_KEY) não foi encontrada no ambiente.")
     
-    # 1. Monta a URL final com a chave de API como parâmetro
+    # Monta a URL final com a chave de API como parâmetro
     final_url = f"{GEMINI_API_URL}?key={GEMINI_API_KEY}"
     
-    # 2. Usa o formato de payload (corpo da requisição) correto e atual
+    # Usa o formato de payload (corpo da requisição) correto e atual
     payload = {
         "contents": [{
             "parts": [{"text": prompt}]
@@ -27,7 +28,7 @@ def ask_gemini(prompt: str) -> str:
     headers = {"Content-Type": "application/json"}
 
     try:
-        # 3. Faz a requisição POST
+        # Faz a requisição POST
         response = requests.post(final_url, headers=headers, data=json.dumps(payload), timeout=600)
         
         # Levanta um erro se a resposta não for bem-sucedida
@@ -35,7 +36,7 @@ def ask_gemini(prompt: str) -> str:
         
         data = response.json()
         
-        # 4. Extrai o texto da resposta no formato novo e correto
+        # Extrai o texto da resposta no formato novo e correto
         text_response = data["candidates"][0]["content"]["parts"][0]["text"]
         return text_response
         
