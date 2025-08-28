@@ -1,22 +1,47 @@
-import requests, json
+import requests
+import json
+import os
 from config import GEMINI_API_KEY, GEMINI_API_URL, MAX_OUTPUT_TOKENS, TEMPERATURE
 
-HEADERS = {"Authorization": f"Bearer {GEMINI_API_KEY}", "Content-Type": "application/json"}
-
-def ask_gemini(prompt: str, context: str = "") -> str:
+def ask_gemini(prompt: str) -> str:
     """
-    Send prompt+context to Gemini Pro. Returns string output.
-    NOTE: adapt GEMINI_API_URL/payload if Google changes schema.
+    Envia um prompt para a API do Gemini e retorna a resposta em texto.
     """
-    full_prompt = (context + "\n\n" if context else "") + prompt
+    if not GEMINI_API_KEY:
+        raise ValueError("A chave de API do Gemini (GEMINI_API_KEY) não foi encontrada no ambiente.")
+    
+    # 1. Monta a URL final com a chave de API como parâmetro
+    final_url = f"{GEMINI_API_URL}?key={GEMINI_API_KEY}"
+    
+    # 2. Usa o formato de payload (corpo da requisição) correto e atual
     payload = {
-        "prompt": full_prompt,
-        "temperature": TEMPERATURE,
-        "max_output_tokens": MAX_OUTPUT_TOKENS
+        "contents": [{
+            "parts": [{"text": prompt}]
+        }],
+        "generationConfig": {
+            "temperature": TEMPERATURE,
+            "maxOutputTokens": MAX_OUTPUT_TOKENS
+        }
     }
-    r = requests.post(GEMINI_API_URL, headers=HEADERS, data=json.dumps(payload), timeout=600)
-    if r.status_code != 200:
-        raise RuntimeError(f"Gemini API error {r.status_code}: {r.text}")
-    data = r.json()
-    # expected shape: { "candidates": [{"content":"..."}], ... }
-    return data.get("candidates", [{}])[0].get("content", "")
+    
+    headers = {"Content-Type": "application/json"}
+
+    try:
+        # 3. Faz a requisição POST
+        response = requests.post(final_url, headers=headers, data=json.dumps(payload), timeout=600)
+        
+        # Levanta um erro se a resposta não for bem-sucedida
+        response.raise_for_status() 
+        
+        data = response.json()
+        
+        # 4. Extrai o texto da resposta no formato novo e correto
+        text_response = data["candidates"][0]["content"]["parts"][0]["text"]
+        return text_response
+        
+    except requests.exceptions.HTTPError as http_err:
+        # Erro HTTP retornado pela API (ex: 400 Bad Request, 401 Unauthorized, etc.)
+        raise RuntimeError(f"Erro na API do Gemini {http_err.response.status_code}: {http_err.response.text}")
+    except Exception as e:
+        # Outros erros (ex: rede, timeout)
+        raise RuntimeError(f"Ocorreu um erro inesperado ao contatar o Gemini: {e}")
