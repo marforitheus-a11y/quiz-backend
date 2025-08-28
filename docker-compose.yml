@@ -23,7 +23,7 @@ services:
   api:
     build: .
     command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
-    dns: 8.8.8.8
+    dns: 8.8.8.8  # <--- ALTERAÇÃO ADICIONADA
     depends_on:
       - redis
       - faiss
@@ -50,7 +50,7 @@ services:
   worker:
     build: .
     command: ["celery", "-A", "worker", "worker", "--loglevel=info", "-Q", "default"]
-    dns: 8.8.8.8
+    dns: 8.8.8.8  # <--- ALTERAÇÃO ADICIONADA
     depends_on:
       - redis
       - faiss
