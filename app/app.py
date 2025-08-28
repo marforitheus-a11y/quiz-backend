@@ -69,14 +69,14 @@ def modify_frontend(request: FrontendChangeRequest):
             content = f.read()
 
         # =============================================================================
-        # LÓGICA DE MODIFICAÇÃO (PRIMEIRO TESTE)
-        # ADAPTE AS DUAS LINHAS ABAIXO PARA ALGO QUE EXISTA NO SEU ARQUIVO DE LOGIN
+        # ALTERAÇÃO APLICADA AQUI
+        # A lógica agora mira no subtítulo do seu index.html
         # =============================================================================
-        texto_original = "Entrar"  # Ex: O texto dentro de um <h1> ou <title>
-        texto_modificado = "Login Modificado pelo Assistente AI"
+        texto_original = "Uma plataforma de resolução de questões por IA"
+        texto_modificado = "A plataforma definitiva para a sua aprovação"
         
         if texto_original not in content:
-            raise HTTPException(status_code=400, detail=f"O texto de teste '{texto_original}' não foi encontrado no arquivo. Adapte a função em app.py.")
+            raise HTTPException(status_code=400, detail=f"O texto de teste '{texto_original}' não foi encontrado no arquivo '{request.target_file}'.")
             
         content = content.replace(texto_original, texto_modificado)
         # =============================================================================
