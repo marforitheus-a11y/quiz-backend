@@ -591,6 +591,18 @@ app.put('/account/tags', authenticateToken, express.json(), async (req, res) => 
 });
 
 // --- INICIAR O SERVIDOR ---
+// Lightweight health endpoint
+app.get('/health', async (req, res) => {
+    try {
+        const ok = await db.testConnection();
+        if (!ok) return res.status(500).json({ status: 'db_unreachable' });
+        return res.status(200).json({ status: 'ok', uptime: process.uptime() });
+    } catch (err) {
+        console.error('Health check error:', err && err.message ? err.message : err);
+        return res.status(500).json({ status: 'error' });
+    }
+});
+
 app.listen(PORT, () => {
-  console.log(`Servidor rodando e ouvindo na porta ${PORT}`);
+    console.log(`Servidor rodando e ouvindo na porta ${PORT}`);
 });
