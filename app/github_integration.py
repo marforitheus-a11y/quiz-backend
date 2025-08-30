@@ -6,21 +6,22 @@ from config import GITHUB_TOKEN, GITHUB_HOST, REPO_NAME, PROJECT_CLONE_PATH
 
 def git_clone_repo():
     # clone into PROJECT_CLONE_PATH (fresh for every run)
-    repo_url = f"https://{GITHUB_TOKEN}@{GITHUB_HOST}/{REPO_NAME}.git"
+    # Use unauthenticated clone then push/pulls via extraheader with token to avoid leaking token in logs.
+    repo_https = f"https://{GITHUB_HOST}/{REPO_NAME}.git"
     target = PROJECT_CLONE_PATH
     if os.path.exists(target):
         # remove existing to avoid conflicts
         subprocess.run(["rm", "-rf", target], check=True)
-    subprocess.run(["git", "clone", repo_url, target], check=True)
+    subprocess.run(["git", "clone", repo_https, target], check=True)
     return target
 
 def create_branch_and_push(repo_dir, branch):
     subprocess.run(["git", "checkout", "-b", branch], cwd=repo_dir, check=True)
     subprocess.run(["git", "add", "."], cwd=repo_dir, check=True)
     subprocess.run(["git", "commit", "-m", f"Automated fixes by AI assistant ({branch})"], cwd=repo_dir, check=True)
-    # push
-    remote = f"https://{GITHUB_TOKEN}@{GITHUB_HOST}/{REPO_NAME}.git"
-    subprocess.run(["git", "push", remote, branch], cwd=repo_dir, check=True)
+    # push using extraheader to avoid token in URL
+    extra = f"Authorization: token {GITHUB_TOKEN}"
+    subprocess.run(["git", "-c", f"http.extraHeader={extra}", "push", "origin", branch], cwd=repo_dir, check=True)
 
 def create_pr_via_api(branch, title, body):
     # simpler: use GitHub REST to open PR

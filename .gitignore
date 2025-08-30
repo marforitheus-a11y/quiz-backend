@@ -1,5 +1,10 @@
 .env
-<<<<<<< Updated upstream
-.env
-=======
->>>>>>> Stashed changes
+__pycache__/
+uploads/
+.venv/
+*.pyc
+*.pyo
+*.pyd
+env/
+node_modules/
+.DS_Store

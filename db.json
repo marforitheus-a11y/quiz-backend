@@ -3,13 +3,13 @@
     {
       "id": 1,
       "username": "admin",
-      "password": "admin123",
+      "password": "<redacted>",
       "role": "admin"
     },
     {
       "id": 2,
       "username": "aluno",
-      "password": "aluno123",
+      "password": "<redacted>",
       "role": "user"
     },
     {

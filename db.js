@@ -7,14 +7,25 @@ if (process.env.NODE_ENV !== 'production') {
 
 const isProduction = process.env.NODE_ENV === 'production';
 
-const connectionString = isProduction 
-    ? process.env.DATABASE_URL // URL do banco da Render
-    : `postgresql://${process.env.DB_USER}:${process.env.DB_PASSWORD}@${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_DATABASE}`;
+let connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+    const { DB_USER, DB_PASSWORD, DB_HOST, DB_PORT, DB_DATABASE } = process.env;
+    if (!DB_USER || !DB_PASSWORD || !DB_HOST || !DB_PORT || !DB_DATABASE) {
+        console.error('Database configuration missing. Set DATABASE_URL or DB_* environment variables.');
+        process.exit(1);
+    }
+    connectionString = `postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_DATABASE}`;
+}
 
 const pool = new Pool({
     connectionString: connectionString,
-    // Adiciona configuração SSL para produção
-    ssl: isProduction ? { rejectUnauthorized: false } : false
+    ssl: isProduction ? { rejectUnauthorized: false } : false,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 2000
+});
+
+pool.on('error', (err) => {
+    console.error('Unexpected error on idle client', err);
 });
 
 module.exports = {
