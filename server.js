@@ -74,13 +74,17 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // --- 6. CONFIGURAÇÃO DOS MIDDLEWARES GLOBAIS ---
-// CORS: allow only configured frontend origin in production
+// CORS: allow configured frontend origins (comma-separated) and common hosting domains like vercel.app
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5500';
+const FRONTEND_URLS = FRONTEND_URL.split(',').map(s => s.trim()).filter(Boolean);
 const corsOptions = {
     origin: function (origin, callback) {
         // allow requests with no origin (like curl, server-to-server)
         if (!origin) return callback(null, true);
-        if (origin === FRONTEND_URL) return callback(null, true);
+        // allow explicit configured origins
+        if (FRONTEND_URLS.includes(origin)) return callback(null, true);
+        // allow preview/staging domains commonly used (conservative rule)
+        if (origin.includes('vercel.app') || origin.includes('netlify.app')) return callback(null, true);
         return callback(new Error('CORS policy: This origin is not allowed'), false);
     },
     methods: "GET,POST,PUT,DELETE,PATCH,OPTIONS",
