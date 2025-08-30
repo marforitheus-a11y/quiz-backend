@@ -9,6 +9,8 @@ if (process.env.NODE_ENV !== 'production') {
 // --- 1. IMPORTAÇÕES DE MÓDULOS ---
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const db = require('./db');
@@ -26,16 +28,42 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const IMGBB_API_KEY = process.env.IMGBB_API_KEY;
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
+// Critical env checks
+if (!JWT_SECRET) {
+    console.error('FATAL: JWT_SECRET is not set. Set it in environment variables.');
+    process.exit(1);
+}
+
 // --- 3. CONFIGURAÇÃO DO MULTER (UPLOAD DE ARQUIVOS) ---
+const { v4: uuidv4 } = require('uuid');
+
+// Secure multer setup: use safe filenames, limit size and filter mime types
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         const dir = './uploads';
-        if (!fs.existsSync(dir)) { fs.mkdirSync(dir); }
+        if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
         cb(null, dir);
     },
-    filename: (req, file, cb) => cb(null, Date.now() + '-' + file.originalname)
+    filename: (req, file, cb) => {
+        // keep only extension from original filename
+        const ext = path.extname(file.originalname).toLowerCase();
+        const safeName = `${Date.now()}-${uuidv4()}${ext}`;
+        cb(null, safeName);
+    }
 });
-const upload = multer({ storage: storage });
+
+function fileFilter(req, file, cb) {
+    const allowed = ['.pdf', '.png', '.jpg', '.jpeg', '.gif'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (!allowed.includes(ext)) {
+        return cb(new Error('Tipo de arquivo não permitido'), false);
+    }
+    // basic mime-type check
+    if (!file.mimetype) return cb(new Error('Mime type missing'), false);
+    cb(null, true);
+}
+
+const upload = multer({ storage: storage, fileFilter, limits: { fileSize: 10 * 1024 * 1024 } }); // 10MB
 
 // --- 4. VARIÁVEIS GLOBAIS EM MEMÓRIA ---
 let activeSessions = {};
@@ -46,12 +74,35 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // --- 6. CONFIGURAÇÃO DOS MIDDLEWARES GLOBAIS ---
+// CORS: allow only configured frontend origin in production
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5500';
 const corsOptions = {
-    origin: 'https://quiz-frontend-nu-wheat.vercel.app', // ⚠️ SUBSTITUA PELA SUA URL CORRETA DO VERCEL SE FOR DIFERENTE
+    origin: function (origin, callback) {
+        // allow requests with no origin (like curl, server-to-server)
+        if (!origin) return callback(null, true);
+        if (origin === FRONTEND_URL) return callback(null, true);
+        return callback(new Error('CORS policy: This origin is not allowed'), false);
+    },
     methods: "GET,POST,PUT,DELETE,PATCH,OPTIONS",
     optionsSuccessStatus: 200
 };
 app.use(cors(corsOptions));
+
+// Security headers
+app.use(helmet());
+// Basic CSP additional header (can be refined for your assets)
+app.use((req, res, next) => {
+    res.setHeader("Content-Security-Policy", "default-src 'self'; img-src 'self' data: https:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';");
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    next();
+});
+
+// Rate limiting
+const globalLimiter = rateLimit({ windowMs: 60 * 1000, max: 200 }); // 200 requests per minute per IP
+app.use(globalLimiter);
+const aiLimiter = rateLimit({ windowMs: 60 * 1000, max: 10 }); // stricter for AI endpoints
 app.use(express.json());
 
 // --- 7. FUNÇÕES AUXILIARES (MIDDLEWARES E IA) ---
@@ -432,6 +483,110 @@ app.post('/admin/themes/:id/reset', authenticateToken, authorizeAdmin, upload.si
         res.status(500).json({ message: 'Erro ao resetar tema.', error: err.message });
     } finally {
         if (file && file.path) { fs.unlinkSync(file.path); }
+    }
+});
+
+// --- CATEGORIES: Admin-managed hierarchical categories (up to 2 levels below root)
+app.get('/admin/categories', authenticateToken, authorizeAdmin, async (req, res) => {
+    try {
+        // ensure table exists
+        await db.query(`CREATE TABLE IF NOT EXISTS categories (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL,
+            parent_id INTEGER NULL
+        )`);
+        const result = await db.query('SELECT id, name, parent_id FROM categories ORDER BY id ASC');
+        const rows = result.rows;
+        // build tree
+        const map = new Map();
+        rows.forEach(r => map.set(r.id, { id: r.id, name: r.name, parentId: r.parent_id, children: [] }));
+        const roots = [];
+        map.forEach(node => {
+            if (node.parentId) {
+                const parent = map.get(node.parentId);
+                if (parent) parent.children.push(node);
+                else roots.push(node);
+            } else roots.push(node);
+        });
+        res.status(200).json(roots);
+    } catch (err) {
+        console.error('Erro categories GET:', err);
+        res.status(500).json({ message: 'Erro ao listar categorias.' });
+    }
+});
+
+app.post('/admin/categories', authenticateToken, authorizeAdmin, express.json(), async (req, res) => {
+    const { name, parentId } = req.body;
+    if (!name) return res.status(400).json({ message: 'Nome é obrigatório' });
+    try {
+        await db.query(`CREATE TABLE IF NOT EXISTS categories (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL,
+            parent_id INTEGER NULL
+        )`);
+        // check depth if parentId provided
+        if (parentId) {
+            // compute depth by walking up
+            let depth = 0;
+            let current = parentId;
+            while (current && depth <= 3) {
+                const r = await db.query('SELECT parent_id FROM categories WHERE id = $1', [current]);
+                if (!r.rows[0]) break;
+                current = r.rows[0].parent_id;
+                depth++;
+            }
+            if (depth >= 2) {
+                return res.status(400).json({ message: 'Profundidade máxima atingida (até 2 níveis abaixo do root).' });
+            }
+        }
+        const insert = await db.query('INSERT INTO categories (name, parent_id) VALUES ($1, $2) RETURNING id, name, parent_id', [name, parentId || null]);
+        res.status(201).json(insert.rows[0]);
+    } catch (err) {
+        console.error('Erro categories POST:', err);
+        res.status(500).json({ message: 'Erro ao criar categoria.' });
+    }
+});
+
+app.delete('/admin/categories/:id', authenticateToken, authorizeAdmin, async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    try {
+        await db.query('DELETE FROM categories WHERE id = $1 OR parent_id = $1', [id]);
+        res.status(200).json({ message: 'Categoria e subcategorias removidas.' });
+    } catch (err) {
+        console.error('Erro categories DELETE:', err);
+        res.status(500).json({ message: 'Erro ao apagar categoria.' });
+    }
+});
+
+// --- PER-USER TAGS (store tags per user) ---
+app.get('/account/tags', authenticateToken, async (req, res) => {
+    try {
+        await db.query(`CREATE TABLE IF NOT EXISTS user_tags (
+            user_id INTEGER PRIMARY KEY,
+            tags JSONB
+        )`);
+        const r = await db.query('SELECT tags FROM user_tags WHERE user_id = $1', [req.user.id]);
+        if (!r.rows[0]) return res.status(200).json([]);
+        return res.status(200).json(r.rows[0].tags || []);
+    } catch (err) {
+        console.error('Erro account/tags GET:', err);
+        res.status(500).json({ message: 'Erro ao buscar tags do usuário.' });
+    }
+});
+
+app.put('/account/tags', authenticateToken, express.json(), async (req, res) => {
+    const { tags } = req.body;
+    if (!Array.isArray(tags)) return res.status(400).json({ message: 'Tags devem ser um array.' });
+    try {
+        await db.query(`CREATE TABLE IF NOT EXISTS user_tags (
+            user_id INTEGER PRIMARY KEY,
+            tags JSONB
+        )`);
+        await db.query('INSERT INTO user_tags (user_id, tags) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET tags = EXCLUDED.tags', [req.user.id, tags]);
+        res.status(200).json({ message: 'Tags atualizadas.' });
+    } catch (err) {
+        console.error('Erro account/tags PUT:', err);
+        res.status(500).json({ message: 'Erro ao atualizar tags do usuário.' });
     }
 });
 
