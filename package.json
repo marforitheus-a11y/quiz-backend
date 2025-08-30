@@ -17,12 +17,13 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.1",
     "express": "^5.1.0",
+    "express-rate-limit": "^6.7.0",
     "form-data": "^4.0.4",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.2",
     "pdf-parse": "^1.1.1",
-  "pg": "^8.16.3",
-  "helmet": "^7.0.0",
-  "uuid": "^11.1.0"
+    "pg": "^8.16.3",
+    "helmet": "^7.0.0",
+    "uuid": "^11.1.0"
   }
 }
