@@ -6,3 +6,8 @@ uploads/
 .env.local
 .env.*.local
 .DS_Store
+GITHUB_TOKEN
+.vscode/
+Thumbs.db
+*.log
+
