@@ -566,6 +566,33 @@ app.get('/questions/counts', authenticateToken, handleCountRequest);
 app.post('/questions/count', authenticateToken, handleCountRequest);
 app.get('/questions/count', authenticateToken, handleCountRequest);
 
+// Return counts grouped by theme and difficulty for the provided theme IDs
+async function handleCountsByTheme(req, res) {
+    const ids = parseThemeIdsFromRequest(req);
+    if (!ids || ids.length === 0) return res.status(400).json({ message: 'themeIds obrigatório.' });
+    try {
+        const q = await db.query(
+            `SELECT theme_id, COALESCE(difficulty, 'easy') AS difficulty, COUNT(*) AS cnt
+             FROM questions WHERE theme_id = ANY($1::int[]) GROUP BY theme_id, difficulty` ,
+            [ids]
+        );
+        const out = {};
+        for (const row of q.rows) {
+            const tid = row.theme_id;
+            if (!out[tid]) out[tid] = { easy: 0, medium: 0, hard: 0 };
+            const d = row.difficulty || 'easy';
+            out[tid][d] = parseInt(row.cnt, 10);
+        }
+        return res.status(200).json(out);
+    } catch (err) {
+        console.error('questions/counts-by-theme failed', err);
+        return res.status(500).json({ message: 'Erro ao contar questões por tema.' });
+    }
+}
+
+app.post('/questions/counts-by-theme', authenticateToken, handleCountsByTheme);
+app.get('/questions/counts-by-theme', authenticateToken, handleCountsByTheme);
+
 app.post('/quiz/finish', authenticateToken, async (req, res) => {
     const { score, totalQuestions, answers } = req.body;
     const userId = req.user.id;
