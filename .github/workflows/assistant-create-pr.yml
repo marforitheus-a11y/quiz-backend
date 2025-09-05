@@ -1,0 +1,98 @@
+name: "Assistant: apply patch and create PR"
+
+on:
+  workflow_dispatch:
+    inputs:
+      patch_base64:
+        description: 'Base64 encoded git patch (required)'
+        required: true
+      branch_name:
+        description: 'Optional branch name to create (defaults to assistant/changes-<timestamp>)'
+        required: false
+
+jobs:
+  apply-patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Decode patch to file
+        shell: bash
+        run: |
+          echo "Decoding patch..."
+          if [ -z "${{ github.event.inputs.patch_base64 }}" ]; then
+            echo 'No patch provided, aborting.'
+            exit 1
+          fi
+          echo "${{ github.event.inputs.patch_base64 }}" | base64 --decode > changes.patch
+          ls -l changes.patch || true
+
+      - name: Attempt to apply patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git status --porcelain
+          if git apply --check changes.patch 2>/dev/null; then
+            git apply changes.patch
+          else
+            echo 'Patch failed git apply -- trying patch -p0'
+            patch -p0 < changes.patch || (echo 'patch apply failed' && exit 2)
+          fi
+
+      - name: Create branch and commit
+        id: commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          BRANCH_INPUT="${{ github.event.inputs.branch_name }}"
+          if [ -z "$BRANCH_INPUT" ]; then
+            TS=$(date -u +'%Y%m%d%H%M%S')
+            BRANCH="assistant/changes-$TS"
+          else
+            BRANCH="$BRANCH_INPUT"
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add -A
+          if git diff --staged --quiet; then
+            echo 'No changes to commit after applying patch.'
+            echo "no_changes=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          git commit -m "Apply assistant patch: automated changes"
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+
+      - name: Push branch using PAT
+        if: steps.commit.outputs.no_changes != 'true'
+        shell: bash
+        env:
+          AI_ASSISTANT_TOKEN: ${{ secrets.AI_ASSISTANT_TOKEN }}
+        run: |
+          set -euo pipefail
+          BRANCH="${{ steps.commit.outputs.branch }}"
+          echo "Pushing branch $BRANCH using provided secret..."
+          git -c http.extraHeader="AUTHORIZATION: token $AI_ASSISTANT_TOKEN" push -u origin "$BRANCH"
+
+      - name: Create Pull Request
+        if: steps.commit.outputs.no_changes != 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.AI_ASSISTANT_TOKEN }}
+          script: |
+            const head = `${{ steps.commit.outputs.branch }}`
+            const base = 'main'
+            const title = 'Assistant: apply automated changes'
+            const body = `This PR was created automatically by the assistant workflow. Review the changes and merge when ready.`
+            const { data: pr } = await github.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head,
+              base,
+              title,
+              body
+            })
+            core.setOutput('pr_number', pr.number)

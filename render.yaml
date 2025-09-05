@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: quiz-backend
+    env: node
+    plan: free
+    buildCommand: "npm install"
+    startCommand: "npm start"
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Add DATABASE_URL, JWT_SECRET, and other secrets in the Render dashboard
+      # - key: DATABASE_URL
+      #   fromDatabase: postgres-db-name

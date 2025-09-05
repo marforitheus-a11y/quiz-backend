@@ -1,0 +1,32 @@
+name: Trigger Render Deploy
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  trigger-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install jq
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y jq
+
+      - name: Trigger deploy via Render API
+        run: |
+          SERVICE_ID="srv-d2j2ahodl3ps738lcf7g"
+          RENDER_API_KEY='${{ secrets.RENDER_API_KEY }}'
+          echo "Triggering Render deploy for $SERVICE_ID"
+          response=$(curl -s -X POST "https://api.render.com/v1/services/$SERVICE_ID/deploys" -H "Authorization: Bearer $RENDER_API_KEY" -H "Content-Type: application/json" -d '{}')
+          echo "Response: $response"
+          deployId=$(echo "$response" | jq -r '.id // .deploy.id')
+          echo "Deploy id: $deployId"
+          for i in {1..24}; do
+            sleep 5
+            status=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" "https://api.render.com/v1/services/$SERVICE_ID/deploys" | jq -r '.value[0].deploy.status')
+            echo "Status: $status"
+            if [[ "$status" == "live" || "$status" == "update_failed" ]]; then
+              break
+            fi
+          done

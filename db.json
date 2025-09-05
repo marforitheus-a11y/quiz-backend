@@ -1,0 +1,79 @@
+{
+  "users": [
+    {
+      "id": 1,
+      "username": "admin",
+      "password": "admin123",
+      "role": "admin"
+    },
+    {
+      "id": 2,
+      "username": "aluno",
+      "password": "aluno123",
+      "role": "user"
+    },
+    {
+      "id": 3,
+      "username": "novo_aluno",
+      "password": "$2b$10$X.b2lAtKPOAB9Ci1U.RHn.1LBGboeDr8L7E3G34b9ZgTaI5vAkBLq",
+      "role": "user"
+    },
+    {
+      "id": 4,
+      "username": "admin",
+      "password": "$2b$10$K5M3s4paxklg9KxWNCGjHeSq/GSlKDwOEogNlWS8alYgM9l86KPWu",
+      "role": "user"
+    }
+  ],
+  "themes": [
+    {
+      "id": 1,
+      "name": "Código de Posturas (Guarujá)"
+    },
+    {
+      "id": 2,
+      "name": "Direito Constitucional"
+    },
+    {
+      "id": 3,
+      "name": "Direito Administrativo"
+    }
+  ],
+  "questions": [
+    {
+      "themeId": 1,
+      "question": "De acordo com a Lei Complementar nº 44/1998 de Guarujá, a quem compete zelar pela manutenção da Cidade?",
+      "options": [
+        "Aos moradores",
+        "À Prefeitura",
+        "Ao Governo do Estado",
+        "Às empresas privadas",
+        "A uma comissão de moradores"
+      ],
+      "answer": "À Prefeitura"
+    },
+    {
+      "themeId": 2,
+      "question": "Qual dos seguintes não é um fundamento da República Federativa do Brasil, segundo a Constituição?",
+      "options": [
+        "A soberania",
+        "A cidadania",
+        "O pluralismo político",
+        "A livre iniciativa",
+        "A garantia do desenvolvimento nacional"
+      ],
+      "answer": "A garantia do desenvolvimento nacional"
+    },
+    {
+      "themeId": 3,
+      "question": "Qual princípio NÃO está expresso no Art. 37 da CF?",
+      "options": [
+        "Legalidade",
+        "Impessoalidade",
+        "Moralidade",
+        "Razoabilidade"
+      ],
+      "answer": "Razoabilidade"
+    }
+  ]
+}
