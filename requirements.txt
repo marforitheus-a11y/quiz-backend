@@ -1,0 +1,16 @@
+fastapi
+uvicorn[standard]
+celery[redis]
+redis
+pydantic
+requests
+python-dotenv
+sentence-transformers
+faiss-cpu
+pypdf
+SQLAlchemy
+psycopg2-binary
+PyGithub
+python-multipart
+aiofiles
+python-slugify
