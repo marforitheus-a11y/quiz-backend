@@ -758,13 +758,10 @@ app.get('/admin/sessions', authenticateToken, authorizeAdmin, (req, res) => {
 
 app.get('/admin/users', authenticateToken, authorizeAdmin, async (req, res) => {
     try {
-        const result = await db.query('SELECT id, username, name, email, role, is_pay, subscription_expires_at FROM users ORDER BY id ASC');
-        const users = result.rows.map(user => ({
-            ...user,
-            isActive: !!activeSessions[user.username]
-        }));
-        res.status(200).json(users);
+        const result = await db.query('SELECT id, name, username, email, role, is_pay, subscription_expires_at, last_quiz_date, daily_quiz_count FROM users ORDER BY id ASC');
+        res.status(200).json(result.rows);
     } catch (err) {
+        console.error("Erro ao buscar usuários:", err);
         res.status(500).json({ message: 'Erro ao buscar usuários.' });
     }
 });
@@ -774,52 +771,55 @@ app.put('/admin/users/:id', authenticateToken, authorizeAdmin, async (req, res) 
     const { is_pay, subscription_expires_at } = req.body;
 
     if (typeof is_pay !== 'boolean' && subscription_expires_at === undefined) {
-        return res.status(400).json({ message: 'Pelo menos um campo (is_pay ou subscription_expires_at) deve ser fornecido.' });
+        return res.status(400).json({ message: "Pelo menos um campo (is_pay ou subscription_expires_at) deve ser fornecido." });
     }
 
     try {
-        const result = await db.query(
-            'UPDATE users SET is_pay = $1, subscription_expires_at = $2 WHERE id = $3 RETURNING id, username, is_pay, subscription_expires_at',
-            [is_pay, subscription_expires_at, id]
-        );
-        if (result.rowCount === 0) {
-            return res.status(404).json({ message: 'Usuário não encontrado.' });
+        const updates = [];
+        const values = [];
+        let queryIndex = 1;
+
+        if (typeof is_pay === 'boolean') {
+            updates.push(`is_pay = $${queryIndex++}`);
+            values.push(is_pay);
         }
-        res.status(200).json({ message: "Status do usuário atualizado com sucesso!", user: result.rows[0] });
+
+        if (subscription_expires_at !== undefined) {
+            // Permite definir a data como nula
+            if (subscription_expires_at === '' || subscription_expires_at === null) {
+                updates.push(`subscription_expires_at = NULL`);
+            } else {
+                updates.push(`subscription_expires_at = $${queryIndex++}`);
+                values.push(subscription_expires_at);
+            }
+        }
+
+        if (updates.length === 0) {
+            // Isso pode acontecer se subscription_expires_at for undefined e is_pay não for booleano
+            return res.status(400).json({ message: "Nenhum campo válido para atualização." });
+        }
+
+        values.push(id);
+        const query = `UPDATE users SET ${updates.join(', ')} WHERE id = $${queryIndex} RETURNING id, name, username, email, role, is_pay, subscription_expires_at`;
+
+        const result = await db.query(query, values);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: "Usuário não encontrado." });
+        }
+
+        res.status(200).json(result.rows[0]);
     } catch (err) {
-        console.error("Erro ao atualizar usuário:", err);
-        res.status(500).json({ message: 'Erro ao atualizar status do usuário.' });
+        console.error(`Erro ao atualizar usuário ${id}:`, err);
+        res.status(500).json({ message: 'Erro interno no servidor ao atualizar o usuário.' });
     }
 });
 
-
-app.post('/admin/users', authenticateToken, authorizeAdmin, async (req, res) => {
-    const { username, password, role, subscription_expires_at } = req.body;
-    try {
-        const hashedPassword = await bcrypt.hash(password, 10);
-        const result = await db.query(
-            'INSERT INTO users (username, password, role, subscription_expires_at) VALUES ($1, $2, $3, $4) RETURNING id, username, role',
-            [username, hashedPassword, role || 'user', subscription_expires_at || null]
-        );
-        res.status(201).json({ message: "Usuário criado com sucesso!", user: result.rows[0] });
-    } catch (err) {
-        res.status(500).json({ message: 'Erro ao criar usuário. O nome de usuário já pode existir.' });
-    }
-});
-
-app.delete('/admin/users/:id', authenticateToken, authorizeAdmin, async (req, res) => {
-    const userIdToDelete = parseInt(req.params.id, 10);
-    const adminUserId = req.user.id;
-    if (userIdToDelete === adminUserId) {
-        return res.status(403).json({ message: "Um administrador não pode apagar a própria conta." });
-    }
-    try {
-        const result = await db.query('DELETE FROM users WHERE id = $1 RETURNING id', [userIdToDelete]);
-        if (result.rowCount === 0) return res.status(404).json({ message: "Usuário não encontrado." });
-        res.status(200).json({ message: `Usuário com ID ${userIdToDelete} foi apagado.` });
-    } catch (err) {
-        res.status(500).json({ message: 'Erro ao apagar usuário.' });
-    }
+app.post('/admin/message', authenticateToken, authorizeAdmin, (req, res) => {
+    const { message } = req.body;
+    globalMessage = message;
+    setTimeout(() => { globalMessage = null; }, 60000);
+    res.status(200).json({ message: "Mensagem global enviada com sucesso!" });
 });
 
 app.get('/admin/reports', authenticateToken, authorizeAdmin, async (req, res) => {
