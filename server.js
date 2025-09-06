@@ -309,19 +309,19 @@ function sanitizeQuestionRow(row) {
 
 // ROTA DE CADASTRO (NOVA)
 app.post('/signup', async (req, res) => {
-    const { name, email, password } = req.body;
-    if (!name || !email || !password) {
-        return res.status(400).json({ message: "Nome, e-mail e senha são obrigatórios." });
+    const { name, email, username, password } = req.body;
+    if (!name || !email || !username || !password) {
+        return res.status(400).json({ message: "Nome, e-mail, usuário e senha são obrigatórios." });
     }
     try {
-        const existingUser = await db.query('SELECT * FROM users WHERE username = $1 OR email = $2', [name, email]);
+        const existingUser = await db.query('SELECT * FROM users WHERE username = $1 OR email = $2', [username, email]);
         if (existingUser.rows.length > 0) {
             return res.status(409).json({ message: "Nome de usuário ou e-mail já cadastrado." });
         }
         const hashedPassword = await bcrypt.hash(password, 10);
         const result = await db.query(
-            'INSERT INTO users (name, username, email, password, role) VALUES ($1, $2, $3, $4, $5) RETURNING id, name, username, role',
-            [name, name, email, hashedPassword, 'user']
+            'INSERT INTO users (name, email, username, password, role, is_pay, daily_quiz_count) VALUES ($1, $2, $3, $4, $5, $6, 0) RETURNING id, name, username, role',
+            [name, email, username, hashedPassword, 'user', false]
         );
         res.status(201).json({ message: "Conta criada com sucesso!", user: result.rows[0] });
     } catch (err) {
@@ -338,8 +338,9 @@ app.post('/login', async (req, res) => {
         const user = result.rows[0];
         if (!user) return res.status(401).json({ message: "Usuário ou senha inválidos." });
 
-        if (user.subscription_expires_at && new Date(user.subscription_expires_at) < new Date()) {
-            return res.status(403).json({ message: "Sua assinatura expirou." });
+        // Se o usuário não for pagante mas tiver uma data de expiração no passado, bloqueia.
+        if (user.is_pay === false && user.subscription_expires_at && new Date(user.subscription_expires_at) < new Date()) {
+            return res.status(403).json({ message: "Sua assinatura expirou. Renove para continuar." });
         }
         
         const isPasswordCorrect = await bcrypt.compare(password, user.password);
@@ -490,8 +491,31 @@ app.get('/themes', authenticateToken, async (req, res) => {
 
 app.post('/questions', authenticateToken, async (req, res) => {
     const { themeIds, count, difficulties } = req.body;
+    const userId = req.user.id;
+
     try {
-        // build query to include optional difficulty filter
+        // Verificar status de pagamento e limite diário
+        const userResult = await db.query('SELECT is_pay, last_quiz_date, daily_quiz_count FROM users WHERE id = $1', [userId]);
+        const user = userResult.rows[0];
+
+        if (!user.is_pay) {
+            const today = new Date().toISOString().split('T')[0];
+            const lastQuizDate = user.last_quiz_date ? new Date(user.last_quiz_date).toISOString().split('T')[0] : null;
+
+            let dailyCount = user.daily_quiz_count;
+
+            if (today !== lastQuizDate) {
+                // Resetar a contagem se for um novo dia
+                dailyCount = 0;
+                await db.query('UPDATE users SET daily_quiz_count = 0, last_quiz_date = $1 WHERE id = $2', [today, userId]);
+            }
+
+            if (dailyCount >= 10) {
+                return res.status(403).json({ message: "Você atingiu o limite de 10 questões por dia. Torne-se um usuário VIP para acesso ilimitado." });
+            }
+        }
+
+        // Lógica para buscar questões
         let qtext = 'SELECT id, question, options, answer FROM questions WHERE theme_id = ANY($1::int[])';
         const params = [themeIds];
         if (difficulties && Array.isArray(difficulties) && difficulties.length > 0) {
@@ -504,9 +528,17 @@ app.post('/questions', authenticateToken, async (req, res) => {
             params.push(count);
         }
         const result = await db.query(qtext, params);
-    const sanitized = result.rows.map(r => sanitizeQuestionRow(r));
-    res.status(200).json(sanitized);
+        const sanitized = result.rows.map(r => sanitizeQuestionRow(r));
+
+        // Atualizar contagem diária para usuários não-pagantes
+        if (!user.is_pay) {
+            const newCount = (user.daily_quiz_count || 0) + sanitized.length;
+            await db.query('UPDATE users SET daily_quiz_count = $1 WHERE id = $2', [newCount, userId]);
+        }
+
+        res.status(200).json(sanitized);
     } catch (err) {
+        console.error("Erro ao buscar questões:", err);
         res.status(500).json({ message: 'Erro ao buscar questões.' });
     }
 });
@@ -726,7 +758,7 @@ app.get('/admin/sessions', authenticateToken, authorizeAdmin, (req, res) => {
 
 app.get('/admin/users', authenticateToken, authorizeAdmin, async (req, res) => {
     try {
-        const result = await db.query('SELECT id, username, role, subscription_expires_at FROM users ORDER BY id ASC');
+        const result = await db.query('SELECT id, username, email, role, is_pay, subscription_expires_at FROM users ORDER BY id ASC');
         const users = result.rows.map(user => ({
             ...user,
             isActive: !!activeSessions[user.username]
@@ -736,6 +768,30 @@ app.get('/admin/users', authenticateToken, authorizeAdmin, async (req, res) => {
         res.status(500).json({ message: 'Erro ao buscar usuários.' });
     }
 });
+
+app.put('/admin/users/:id', authenticateToken, authorizeAdmin, async (req, res) => {
+    const { id } = req.params;
+    const { is_pay, subscription_expires_at } = req.body;
+
+    if (typeof is_pay !== 'boolean' && subscription_expires_at === undefined) {
+        return res.status(400).json({ message: 'Pelo menos um campo (is_pay ou subscription_expires_at) deve ser fornecido.' });
+    }
+
+    try {
+        const result = await db.query(
+            'UPDATE users SET is_pay = $1, subscription_expires_at = $2 WHERE id = $3 RETURNING id, username, is_pay, subscription_expires_at',
+            [is_pay, subscription_expires_at, id]
+        );
+        if (result.rowCount === 0) {
+            return res.status(404).json({ message: 'Usuário não encontrado.' });
+        }
+        res.status(200).json({ message: "Status do usuário atualizado com sucesso!", user: result.rows[0] });
+    } catch (err) {
+        console.error("Erro ao atualizar usuário:", err);
+        res.status(500).json({ message: 'Erro ao atualizar status do usuário.' });
+    }
+});
+
 
 app.post('/admin/users', authenticateToken, authorizeAdmin, async (req, res) => {
     const { username, password, role, subscription_expires_at } = req.body;
