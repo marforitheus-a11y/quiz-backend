@@ -21,6 +21,9 @@ const pdfParse = require('pdf-parse');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const axios = require('axios');
 const FormData = require('form-data');
+const session = require('express-session');
+const passport = require('passport');
+require('./app/auth_config.js');
 
 // --- 2. INICIALIZAÇÃO DE VARIÁVEIS E CLIENTES ---
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -108,6 +111,55 @@ const globalLimiter = rateLimit({ windowMs: 60 * 1000, max: 200 }); // 200 reque
 app.use(globalLimiter);
 const aiLimiter = rateLimit({ windowMs: 60 * 1000, max: 10 }); // stricter for AI endpoints
 app.use(express.json());
+
+// --- 6.1. CONFIGURAÇÃO DE SESSÃO E AUTENTICAÇÃO (PASSPORT) ---
+app.use(session({
+    secret: process.env.SESSION_SECRET || 'a_fallback_secret_for_session', // Fallback for local dev
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+        secure: process.env.NODE_ENV === 'production', // Use secure cookies in production
+        httpOnly: true,
+        maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    }
+}));
+
+app.use(passport.initialize());
+app.use(passport.session());
+
+// --- 6.2. ROTAS DE AUTENTICAÇÃO SOCIAL ---
+// Rota para iniciar a autenticação (ex: /auth/google)
+app.get('/auth/:provider', (req, res, next) => {
+    const provider = req.params.provider;
+    // Adiciona o parâmetro prompt=select_account para o Google, forçando a seleção de conta
+    if (provider === 'google') {
+        passport.authenticate(provider, { scope: ['profile', 'email'], prompt: 'select_account' })(req, res, next);
+    } else if (provider === 'facebook') {
+        passport.authenticate(provider, { scope: ['email'] })(req, res, next);
+    } else {
+        passport.authenticate(provider)(req, res, next);
+    }
+});
+
+// Rota de callback após a autenticação
+app.get('/auth/:provider/callback', (req, res, next) => {
+    const provider = req.params.provider;
+    passport.authenticate(provider, (err, user, info) => {
+        if (err || !user) {
+            // Em caso de erro ou falha na autenticação, redireciona para uma página de falha
+            const failureRedirectUrl = `${process.env.FRONTEND_URL}/auth-failure.html?error=${encodeURIComponent(info?.message || 'Authentication failed')}`;
+            return res.redirect(failureRedirectUrl);
+        }
+        // Se a autenticação for bem-sucedida, gera o token JWT
+        const payload = { id: user.id, username: user.username, role: user.role };
+        const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '8h' });
+
+        // Redireciona para uma página de sucesso no frontend com o token
+        const successRedirectUrl = `${process.env.FRONTEND_URL}/auth-success.html?token=${token}`;
+        res.redirect(successRedirectUrl);
+    })(req, res, next);
+});
+
 
 // TEMPORARY: log incoming requests (method, path, origin) to help debug routing issues like "Cannot POST /..."
 // Remove or reduce verbosity after debugging.
