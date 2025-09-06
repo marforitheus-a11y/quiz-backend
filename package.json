@@ -18,12 +18,17 @@
     "dotenv": "^17.2.1",
     "express": "^5.1.0",
     "express-rate-limit": "^6.7.0",
+    "express-session": "^1.18.2",
     "form-data": "^4.0.4",
+    "helmet": "^7.0.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.2",
+    "passport": "^0.7.0",
+    "passport-facebook": "^3.0.0",
+    "passport-google-oauth20": "^2.0.0",
+    "passport-twitter": "^1.0.4",
     "pdf-parse": "^1.1.1",
     "pg": "^8.16.3",
-    "helmet": "^7.0.0",
     "uuid": "^11.1.0"
   }
 }
