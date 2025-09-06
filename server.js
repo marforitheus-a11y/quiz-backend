@@ -758,7 +758,7 @@ app.get('/admin/sessions', authenticateToken, authorizeAdmin, (req, res) => {
 
 app.get('/admin/users', authenticateToken, authorizeAdmin, async (req, res) => {
     try {
-        const result = await db.query('SELECT id, username, email, role, is_pay, subscription_expires_at FROM users ORDER BY id ASC');
+        const result = await db.query('SELECT id, username, name, email, role, is_pay, subscription_expires_at FROM users ORDER BY id ASC');
         const users = result.rows.map(user => ({
             ...user,
             isActive: !!activeSessions[user.username]
