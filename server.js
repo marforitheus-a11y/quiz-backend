@@ -915,6 +915,9 @@ app.get('/admin/reports', authenticateToken, authorizeAdmin, async (req, res) =>
 // Admin: list all questions with category info
 app.get('/admin/questions', authenticateToken, authorizeAdmin, async (req, res) => {
     try {
+        // First ensure the category_id column exists
+        await db.query(`ALTER TABLE questions ADD COLUMN IF NOT EXISTS category_id INTEGER`);
+        
         const result = await db.query(`
             SELECT 
                 q.id, 
@@ -1100,10 +1103,13 @@ app.post('/admin/themes', authenticateToken, authorizeAdmin, upload.single('pdfF
         const themeResult = await db.query('INSERT INTO themes (name, category_id) VALUES ($1, $2) RETURNING id', [themeName, categoryId || null]);
         const newThemeId = themeResult.rows[0].id;
         for (const q of generatedQuestions) {
-            try { await db.query(`ALTER TABLE questions ADD COLUMN IF NOT EXISTS difficulty TEXT`); } catch (e) {}
+            try { 
+                await db.query(`ALTER TABLE questions ADD COLUMN IF NOT EXISTS difficulty TEXT`); 
+                await db.query(`ALTER TABLE questions ADD COLUMN IF NOT EXISTS category_id INTEGER`);
+            } catch (e) {}
             await db.query(
-                'INSERT INTO questions (theme_id, question, options, answer, difficulty) VALUES ($1, $2, $3, $4, $5)',
-                [newThemeId, q.question, q.options, resolveAnswerText(q), difficulty]
+                'INSERT INTO questions (theme_id, question, options, answer, difficulty, category_id) VALUES ($1, $2, $3, $4, $5, $6)',
+                [newThemeId, q.question, q.options, resolveAnswerText(q), difficulty, categoryId || null]
             );
         }
         res.status(201).json({ message: `Tema '${themeName}' e ${generatedQuestions.length} questões foram adicionadas.` });
@@ -1196,9 +1202,17 @@ app.post('/admin/themes/:id/add', authenticateToken, authorizeAdmin, upload.sing
 
         // insert generated questions appended to existing ones
         for (const q of generated) {
-            // ensure questions table has difficulty column
-            try { await db.query(`ALTER TABLE questions ADD COLUMN IF NOT EXISTS difficulty TEXT`); } catch (e) {}
-            await db.query('INSERT INTO questions (theme_id, question, options, answer, difficulty) VALUES ($1,$2,$3,$4,$5)', [themeId, q.question, q.options, resolveAnswerText(q), difficulty]);
+            // ensure questions table has difficulty and category_id columns
+            try { 
+                await db.query(`ALTER TABLE questions ADD COLUMN IF NOT EXISTS difficulty TEXT`); 
+                await db.query(`ALTER TABLE questions ADD COLUMN IF NOT EXISTS category_id INTEGER`);
+            } catch (e) {}
+            
+            // Get the category_id from theme if available
+            const themeCategoryId = categoryId || null;
+            
+            await db.query('INSERT INTO questions (theme_id, question, options, answer, difficulty, category_id) VALUES ($1,$2,$3,$4,$5,$6)', 
+                [themeId, q.question, q.options, resolveAnswerText(q), difficulty, themeCategoryId]);
         }
         res.status(201).json({ message: `Adicionadas ${generated.length} questões ao tema ${themeId}.` });
     } catch (err) {
@@ -1221,10 +1235,18 @@ app.post('/admin/themes/:id/reset', authenticateToken, authorizeAdmin, upload.si
         const dataBuffer = fs.readFileSync(file.path);
         const data = await pdfParse(dataBuffer);
         const newQuestions = await generateQuestionsFromText(data.text, questionCount);
+        
+        // Get theme info to get category_id
+        const themeResult = await db.query('SELECT category_id FROM themes WHERE id = $1', [id]);
+        const themeCategoryId = themeResult.rows[0]?.category_id || null;
+        
         for (const q of newQuestions) {
+            try { 
+                await db.query(`ALTER TABLE questions ADD COLUMN IF NOT EXISTS category_id INTEGER`);
+            } catch (e) {}
             await db.query(
-                'INSERT INTO questions (theme_id, question, options, answer) VALUES ($1, $2, $3, $4)',
-                [id, q.question, q.options, resolveAnswerText(q)]
+                'INSERT INTO questions (theme_id, question, options, answer, category_id) VALUES ($1, $2, $3, $4, $5)',
+                [id, q.question, q.options, resolveAnswerText(q), themeCategoryId]
             );
         }
         res.status(200).json({ message: `Tema resetado com ${newQuestions.length} novas questões.` });
