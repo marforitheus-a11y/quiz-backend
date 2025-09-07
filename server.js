@@ -1011,7 +1011,26 @@ app.get('/admin/questions', authenticateToken, authorizeAdmin, async (req, res) 
             LEFT JOIN categories c ON q.category_id = c.id
             ORDER BY q.id DESC
         `);
-        res.status(200).json(result.rows);
+        
+        // Parse options from JSON string to array
+        const questionsWithParsedOptions = result.rows.map(row => {
+            let options = row.options;
+            if (typeof options === 'string') {
+                try {
+                    options = JSON.parse(options);
+                } catch (e) {
+                    // If JSON parse fails, try to split by newlines or keep as string
+                    if (options.includes('\n')) {
+                        options = options.split('\n').filter(opt => opt.trim());
+                    } else {
+                        options = [options];
+                    }
+                }
+            }
+            return { ...row, options };
+        });
+        
+        res.status(200).json(questionsWithParsedOptions);
     } catch (err) {
         console.error('Erro GET /admin/questions', err);
         res.status(500).json({ message: 'Erro ao buscar questões.' });
@@ -1025,7 +1044,23 @@ app.get('/admin/questions/:id', authenticateToken, authorizeAdmin, async (req, r
     try {
         const result = await db.query('SELECT id, theme_id, question, options, answer FROM questions WHERE id = $1', [qid]);
         if (result.rowCount === 0) return res.status(404).json({ message: 'Questão não encontrada.' });
-        res.status(200).json(result.rows[0]);
+        
+        const question = result.rows[0];
+        let options = question.options;
+        if (typeof options === 'string') {
+            try {
+                options = JSON.parse(options);
+            } catch (e) {
+                // If JSON parse fails, try to split by newlines or keep as string
+                if (options.includes('\n')) {
+                    options = options.split('\n').filter(opt => opt.trim());
+                } else {
+                    options = [options];
+                }
+            }
+        }
+        
+        res.status(200).json({ ...question, options });
     } catch (err) {
         console.error('Erro GET /admin/questions/:id', err);
         res.status(500).json({ message: 'Erro ao buscar questão.' });
@@ -1187,7 +1222,7 @@ app.post('/admin/themes', authenticateToken, authorizeAdmin, upload.single('pdfF
             } catch (e) {}
             await db.query(
                 'INSERT INTO questions (theme_id, question, options, answer, difficulty, category_id) VALUES ($1, $2, $3, $4, $5, $6)',
-                [newThemeId, q.question, q.options, resolveAnswerText(q), difficulty, categoryId || null]
+                [newThemeId, q.question, JSON.stringify(q.options), resolveAnswerText(q), difficulty, categoryId || null]
             );
         }
         res.status(201).json({ message: `Tema '${themeName}' e ${generatedQuestions.length} questões foram adicionadas.` });
@@ -1291,7 +1326,7 @@ app.post('/admin/themes/:id/add', authenticateToken, authorizeAdmin, upload.sing
             const themeCategoryId = categoryId || null;
             
             await db.query('INSERT INTO questions (theme_id, question, options, answer, difficulty, category_id) VALUES ($1,$2,$3,$4,$5,$6)', 
-                [themeId, q.question, q.options, resolveAnswerText(q), difficulty, themeCategoryId]);
+                [themeId, q.question, JSON.stringify(q.options), resolveAnswerText(q), difficulty, themeCategoryId]);
         }
         res.status(201).json({ message: `Adicionadas ${generated.length} questões ao tema ${themeId}.` });
     } catch (err) {
@@ -1326,7 +1361,7 @@ app.post('/admin/themes/:id/reset', authenticateToken, authorizeAdmin, upload.si
             } catch (e) {}
             await db.query(
                 'INSERT INTO questions (theme_id, question, options, answer, category_id) VALUES ($1, $2, $3, $4, $5)',
-                [id, q.question, q.options, resolveAnswerText(q), themeCategoryId]
+                [id, q.question, JSON.stringify(q.options), resolveAnswerText(q), themeCategoryId]
             );
         }
         res.status(200).json({ message: `Tema resetado com ${newQuestions.length} novas questões.` });
