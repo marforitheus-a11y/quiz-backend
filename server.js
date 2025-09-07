@@ -1201,26 +1201,139 @@ app.delete('/admin/questions/:id', authenticateToken, authorizeAdmin, async (req
     }
     
     try {
-        console.log('[DELETE-QUESTION] Excluindo reportes da questão...');
-        // First delete any reports for this question
+        // Iniciar transação para garantir consistência
+        await db.query('BEGIN');
+        
+        console.log('[DELETE-QUESTION] Excluindo dependências da questão...');
+        
+        // 1. Excluir reportes da questão
         const reportsResult = await db.query('DELETE FROM reports WHERE question_id = $1', [qid]);
         console.log('[DELETE-QUESTION] Reportes excluídos:', reportsResult.rowCount);
         
+        // 2. Excluir histórico de quiz (se existir)
+        try {
+            const historyResult = await db.query('DELETE FROM quiz_history WHERE question_id = $1', [qid]);
+            console.log('[DELETE-QUESTION] Histórico excluído:', historyResult.rowCount);
+        } catch (err) {
+            console.log('[DELETE-QUESTION] Tabela quiz_history não existe ou erro:', err.message);
+        }
+        
+        // 3. Excluir respostas dos usuários (se existir)
+        try {
+            const answersResult = await db.query('DELETE FROM user_answers WHERE question_id = $1', [qid]);
+            console.log('[DELETE-QUESTION] Respostas excluídas:', answersResult.rowCount);
+        } catch (err) {
+            console.log('[DELETE-QUESTION] Tabela user_answers não existe ou erro:', err.message);
+        }
+        
+        // 4. Excluir outras possíveis referências
+        try {
+            const statisticsResult = await db.query('DELETE FROM question_statistics WHERE question_id = $1', [qid]);
+            console.log('[DELETE-QUESTION] Estatísticas excluídas:', statisticsResult.rowCount);
+        } catch (err) {
+            console.log('[DELETE-QUESTION] Tabela question_statistics não existe ou erro:', err.message);
+        }
+        
         console.log('[DELETE-QUESTION] Excluindo questão...');
-        // Then delete the question
+        // Finalmente, excluir a questão
         const result = await db.query('DELETE FROM questions WHERE id = $1 RETURNING id', [qid]);
         console.log('[DELETE-QUESTION] Resultado da exclusão:', result.rowCount, result.rows);
         
         if (result.rowCount === 0) {
             console.log('[DELETE-QUESTION] Questão não encontrada');
+            await db.query('ROLLBACK');
             return res.status(404).json({ message: 'Questão não encontrada.' });
         }
         
+        // Confirmar transação
+        await db.query('COMMIT');
         console.log('[DELETE-QUESTION] Questão excluída com sucesso');
         res.status(200).json({ message: 'Questão excluída com sucesso.', id: qid });
     } catch (err) {
+        // Desfazer transação em caso de erro
+        await db.query('ROLLBACK');
         console.error('Erro DELETE /admin/questions/:id', err);
-        res.status(500).json({ message: 'Erro ao excluir questão.', error: err.message });
+        res.status(500).json({ 
+            message: 'Erro ao excluir questão.', 
+            error: err.message,
+            detail: err.detail || 'Erro interno do servidor'
+        });
+    }
+});
+
+// Admin: verificar dependências de uma questão (para debug)
+app.get('/admin/questions/:id/dependencies', authenticateToken, authorizeAdmin, async (req, res) => {
+    const qid = parseInt(req.params.id, 10);
+    
+    if (!qid) {
+        return res.status(400).json({ message: 'ID inválido.' });
+    }
+    
+    try {
+        const dependencies = {};
+        
+        // Verificar reportes
+        try {
+            const reports = await db.query('SELECT COUNT(*) as count FROM reports WHERE question_id = $1', [qid]);
+            dependencies.reports = parseInt(reports.rows[0].count);
+        } catch (err) {
+            dependencies.reports = 'N/A';
+        }
+        
+        // Verificar histórico de quiz
+        try {
+            const history = await db.query('SELECT COUNT(*) as count FROM quiz_history WHERE question_id = $1', [qid]);
+            dependencies.quiz_history = parseInt(history.rows[0].count);
+        } catch (err) {
+            dependencies.quiz_history = 'N/A';
+        }
+        
+        // Verificar respostas dos usuários
+        try {
+            const answers = await db.query('SELECT COUNT(*) as count FROM user_answers WHERE question_id = $1', [qid]);
+            dependencies.user_answers = parseInt(answers.rows[0].count);
+        } catch (err) {
+            dependencies.user_answers = 'N/A';
+        }
+        
+        // Verificar estatísticas
+        try {
+            const stats = await db.query('SELECT COUNT(*) as count FROM question_statistics WHERE question_id = $1', [qid]);
+            dependencies.question_statistics = parseInt(stats.rows[0].count);
+        } catch (err) {
+            dependencies.question_statistics = 'N/A';
+        }
+        
+        // Verificar constraint violations usando query system tables
+        try {
+            const constraints = await db.query(`
+                SELECT 
+                    tc.constraint_name, 
+                    tc.table_name,
+                    kcu.column_name,
+                    ccu.table_name AS foreign_table_name,
+                    ccu.column_name AS foreign_column_name 
+                FROM 
+                    information_schema.table_constraints AS tc 
+                    JOIN information_schema.key_column_usage AS kcu
+                      ON tc.constraint_name = kcu.constraint_name
+                      AND tc.table_schema = kcu.table_schema
+                    JOIN information_schema.constraint_column_usage AS ccu
+                      ON ccu.constraint_name = tc.constraint_name
+                      AND ccu.table_schema = tc.table_schema
+                WHERE tc.constraint_type = 'FOREIGN KEY' 
+                AND ccu.table_name = 'questions'
+                AND ccu.column_name = 'id'
+            `);
+            dependencies.foreign_key_constraints = constraints.rows;
+        } catch (err) {
+            dependencies.foreign_key_constraints = 'Error: ' + err.message;
+        }
+        
+        res.status(200).json(dependencies);
+    } catch (err) {
+        console.error('Erro ao verificar dependências:', err);
+        res.status(500).json({ message: 'Erro ao verificar dependências.', error: err.message });
     }
 });
 
