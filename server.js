@@ -158,15 +158,22 @@ try {
 // --- 6.2. ROTAS DE AUTENTICAÇÃO SOCIAL ---
 // Debug endpoint para verificar configurações OAuth
 app.get('/auth/debug', (req, res) => {
-    const config = {
-        google_client_id: process.env.GOOGLE_CLIENT_ID ? 'Configurado' : 'NÃO CONFIGURADO',
-        google_client_secret: process.env.GOOGLE_CLIENT_SECRET ? 'Configurado' : 'NÃO CONFIGURADO',
-        facebook_app_id: process.env.FACEBOOK_APP_ID ? 'Configurado' : 'NÃO CONFIGURADO',
-        facebook_app_secret: process.env.FACEBOOK_APP_SECRET ? 'Configurado' : 'NÃO CONFIGURADO',
-        session_secret: process.env.SESSION_SECRET ? 'Configurado' : 'NÃO CONFIGURADO',
-        node_env: process.env.NODE_ENV || 'NÃO CONFIGURADO'
-    };
-    res.json(config);
+    try {
+        const config = {
+            google_client_id: process.env.GOOGLE_CLIENT_ID ? 'Configurado' : 'NÃO CONFIGURADO',
+            google_client_secret: process.env.GOOGLE_CLIENT_SECRET ? 'Configurado' : 'NÃO CONFIGURADO',
+            facebook_app_id: process.env.FACEBOOK_APP_ID ? 'Configurado' : 'NÃO CONFIGURADO',
+            facebook_app_secret: process.env.FACEBOOK_APP_SECRET ? 'Configurado' : 'NÃO CONFIGURADO',
+            session_secret: process.env.SESSION_SECRET ? 'Configurado' : 'NÃO CONFIGURADO',
+            node_env: process.env.NODE_ENV || 'NÃO CONFIGURADO',
+            timestamp: new Date().toISOString()
+        };
+        console.log('Debug OAuth config:', config);
+        res.json(config);
+    } catch (error) {
+        console.error('Erro no debug endpoint:', error);
+        res.status(500).json({ error: 'Erro interno', message: error.message });
+    }
 });
 
 // Rota de teste para debug
