@@ -746,12 +746,26 @@ app.post('/report-error', authenticateToken, async (req, res) => {
     const { questionId, errorType, details } = req.body;
     const userId = req.user.id;
     try {
+        // Create reports table if it doesn't exist
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS reports (
+                id SERIAL PRIMARY KEY,
+                question_id INTEGER REFERENCES questions(id) ON DELETE CASCADE,
+                user_id INTEGER,
+                reason TEXT,
+                description TEXT,
+                status TEXT DEFAULT 'pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        
         await db.query(
-            'INSERT INTO reported_errors (question_id, user_id, error_type, details) VALUES ($1, $2, $3, $4)',
+            'INSERT INTO reports (question_id, user_id, reason, description) VALUES ($1, $2, $3, $4)',
             [questionId, userId, errorType, details]
         );
         res.status(200).json({ message: "Erro reportado com sucesso. Agradecemos sua colaboração." });
     } catch (err) {
+        console.error('Erro ao reportar:', err);
         res.status(500).json({ message: 'Erro ao registrar o reporte.' });
     }
 });
@@ -761,10 +775,23 @@ app.post('/report-error-correct', authenticateToken, async (req, res) => {
     const { questionIndex, question, details } = req.body;
     const userId = req.user.id;
     try {
+        // Create reports table if it doesn't exist
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS reports (
+                id SERIAL PRIMARY KEY,
+                question_id INTEGER REFERENCES questions(id) ON DELETE CASCADE,
+                user_id INTEGER,
+                reason TEXT,
+                description TEXT,
+                status TEXT DEFAULT 'pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        
         // persist the report (question may not have DB id in this flow)
         const qid = question && question.id ? question.id : null;
         await db.query(
-            'INSERT INTO reported_errors (question_id, user_id, error_type, details) VALUES ($1, $2, $3, $4)',
+            'INSERT INTO reports (question_id, user_id, reason, description) VALUES ($1, $2, $3, $4)',
             [qid, userId, 'user_report', details]
         );
 
@@ -899,15 +926,37 @@ app.post('/admin/message', authenticateToken, authorizeAdmin, (req, res) => {
 
 app.get('/admin/reports', authenticateToken, authorizeAdmin, async (req, res) => {
     try {
+        // Create reports table if it doesn't exist
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS reports (
+                id SERIAL PRIMARY KEY,
+                question_id INTEGER REFERENCES questions(id) ON DELETE CASCADE,
+                user_id INTEGER,
+                reason TEXT,
+                description TEXT,
+                status TEXT DEFAULT 'pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        
         const result = await db.query(`
-            SELECT r.id, r.question_id, r.status, r.error_type, r.details, q.question, u.username as reported_by, r.reported_at 
-            FROM reported_errors r
+            SELECT 
+                r.id, 
+                r.question_id, 
+                r.status, 
+                r.reason as error_type, 
+                r.description as details, 
+                q.question, 
+                u.username as reported_by, 
+                r.created_at as reported_at 
+            FROM reports r
             JOIN questions q ON r.question_id = q.id
-            JOIN users u ON r.user_id = u.id
-            ORDER BY r.reported_at DESC LIMIT 20
+            LEFT JOIN users u ON r.user_id = u.id
+            ORDER BY r.created_at DESC LIMIT 20
         `);
         res.status(200).json(result.rows);
     } catch (err) {
+        console.error('Erro GET /admin/reports', err);
         res.status(500).json({ message: 'Erro ao buscar reportes.' });
     }
 });
@@ -919,6 +968,18 @@ app.get('/admin/questions', authenticateToken, authorizeAdmin, async (req, res) 
         await db.query(`ALTER TABLE questions ADD COLUMN IF NOT EXISTS category_id INTEGER`);
         await db.query(`ALTER TABLE questions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`);
         await db.query(`ALTER TABLE questions ADD COLUMN IF NOT EXISTS difficulty TEXT`);
+        
+        // Create reports table if it doesn't exist
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS reports (
+                id SERIAL PRIMARY KEY,
+                question_id INTEGER REFERENCES questions(id) ON DELETE CASCADE,
+                user_id INTEGER,
+                reason TEXT,
+                description TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
         
         const result = await db.query(`
             SELECT 
