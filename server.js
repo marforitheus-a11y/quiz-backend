@@ -1192,22 +1192,35 @@ app.put('/admin/questions/:id', authenticateToken, authorizeAdmin, express.json(
 // Admin: delete a question
 app.delete('/admin/questions/:id', authenticateToken, authorizeAdmin, async (req, res) => {
     const qid = parseInt(req.params.id, 10);
-    if (!qid) return res.status(400).json({ message: 'ID inválido.' });
+    console.log('[DELETE-QUESTION] Tentativa de exclusão da questão ID:', qid);
+    console.log('[DELETE-QUESTION] User:', req.user ? req.user.id : 'undefined');
+    
+    if (!qid) {
+        console.log('[DELETE-QUESTION] ID inválido:', req.params.id);
+        return res.status(400).json({ message: 'ID inválido.' });
+    }
     
     try {
+        console.log('[DELETE-QUESTION] Excluindo reportes da questão...');
         // First delete any reports for this question
-        await db.query('DELETE FROM reports WHERE question_id = $1', [qid]);
+        const reportsResult = await db.query('DELETE FROM reports WHERE question_id = $1', [qid]);
+        console.log('[DELETE-QUESTION] Reportes excluídos:', reportsResult.rowCount);
         
+        console.log('[DELETE-QUESTION] Excluindo questão...');
         // Then delete the question
         const result = await db.query('DELETE FROM questions WHERE id = $1 RETURNING id', [qid]);
+        console.log('[DELETE-QUESTION] Resultado da exclusão:', result.rowCount, result.rows);
+        
         if (result.rowCount === 0) {
+            console.log('[DELETE-QUESTION] Questão não encontrada');
             return res.status(404).json({ message: 'Questão não encontrada.' });
         }
         
+        console.log('[DELETE-QUESTION] Questão excluída com sucesso');
         res.status(200).json({ message: 'Questão excluída com sucesso.', id: qid });
     } catch (err) {
         console.error('Erro DELETE /admin/questions/:id', err);
-        res.status(500).json({ message: 'Erro ao excluir questão.' });
+        res.status(500).json({ message: 'Erro ao excluir questão.', error: err.message });
     }
 });
 
