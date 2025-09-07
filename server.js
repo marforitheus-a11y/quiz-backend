@@ -981,16 +981,30 @@ app.get('/admin/questions', authenticateToken, authorizeAdmin, async (req, res) 
             )
         `);
         
+        // Ensure "Sem Categoria" exists and update questions without category
+        let semCategoriaId;
+        const categoriaResult = await db.query(`SELECT id FROM categories WHERE name = 'Sem Categoria'`);
+        if (categoriaResult.rows.length === 0) {
+            const insertResult = await db.query(`INSERT INTO categories (name) VALUES ('Sem Categoria') RETURNING id`);
+            semCategoriaId = insertResult.rows[0].id;
+        } else {
+            semCategoriaId = categoriaResult.rows[0].id;
+        }
+        
+        // Update questions without category to use "Sem Categoria"
+        await db.query(`UPDATE questions SET category_id = $1 WHERE category_id IS NULL`, [semCategoriaId]);
+        
         const result = await db.query(`
             SELECT 
                 q.id, 
                 q.theme_id, 
                 q.question, 
+                q.options,
                 q.answer,
                 q.difficulty,
                 q.created_at,
                 q.category_id,
-                c.name as category_name,
+                COALESCE(c.name, 'Sem Categoria') as category_name,
                 (SELECT COUNT(*) FROM reports r WHERE r.question_id = q.id) as report_count,
                 EXISTS(SELECT 1 FROM reports r WHERE r.question_id = q.id) as reported
             FROM questions q
