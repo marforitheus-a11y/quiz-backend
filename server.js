@@ -24,6 +24,7 @@ const FormData = require('form-data');
 const session = require('express-session');
 const passport = require('passport');
 require('./app/auth_config.js');
+const authRoutes = require('./app/auth_routes.js');
 
 // --- 2. INICIALIZAÇÃO DE VARIÁVEIS E CLIENTES ---
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -128,37 +129,7 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 // --- 6.2. ROTAS DE AUTENTICAÇÃO SOCIAL ---
-// Rota para iniciar a autenticação (ex: /auth/google)
-app.get('/auth/:provider', (req, res, next) => {
-    const provider = req.params.provider;
-    // Adiciona o parâmetro prompt=select_account para o Google, forçando a seleção de conta
-    if (provider === 'google') {
-        passport.authenticate(provider, { scope: ['profile', 'email'], prompt: 'select_account' })(req, res, next);
-    } else if (provider === 'facebook') {
-        passport.authenticate(provider, { scope: ['email'] })(req, res, next);
-    } else {
-        passport.authenticate(provider)(req, res, next);
-    }
-});
-
-// Rota de callback após a autenticação
-app.get('/auth/:provider/callback', (req, res, next) => {
-    const provider = req.params.provider;
-    passport.authenticate(provider, (err, user, info) => {
-        if (err || !user) {
-            // Em caso de erro ou falha na autenticação, redireciona para uma página de falha
-            const failureRedirectUrl = `${process.env.FRONTEND_URL}/auth-failure.html?error=${encodeURIComponent(info?.message || 'Authentication failed')}`;
-            return res.redirect(failureRedirectUrl);
-        }
-        // Se a autenticação for bem-sucedida, gera o token JWT
-        const payload = { id: user.id, username: user.username, role: user.role };
-        const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '8h' });
-
-        // Redireciona para uma página de sucesso no frontend com o token
-        const successRedirectUrl = `${process.env.FRONTEND_URL}/auth-success.html?token=${token}`;
-        res.redirect(successRedirectUrl);
-    })(req, res, next);
-});
+app.use('/auth', authRoutes);
 
 
 // TEMPORARY: log incoming requests (method, path, origin) to help debug routing issues like "Cannot POST /..."
