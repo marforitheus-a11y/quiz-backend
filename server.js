@@ -926,6 +926,8 @@ app.post('/admin/message', authenticateToken, authorizeAdmin, (req, res) => {
 
 app.get('/admin/reports', authenticateToken, authorizeAdmin, async (req, res) => {
     try {
+        console.log('[REPORTS] Requisição de reportes recebida');
+        
         // Create reports table if it doesn't exist
         await db.query(`
             CREATE TABLE IF NOT EXISTS reports (
@@ -938,6 +940,8 @@ app.get('/admin/reports', authenticateToken, authorizeAdmin, async (req, res) =>
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         `);
+        
+        console.log('[REPORTS] Tabela reports criada/verificada');
         
         const result = await db.query(`
             SELECT 
@@ -954,10 +958,12 @@ app.get('/admin/reports', authenticateToken, authorizeAdmin, async (req, res) =>
             LEFT JOIN users u ON r.user_id = u.id
             ORDER BY r.created_at DESC LIMIT 20
         `);
+        
+        console.log('[REPORTS] Query executada, reportes encontrados:', result.rows.length);
         res.status(200).json(result.rows);
     } catch (err) {
         console.error('Erro GET /admin/reports', err);
-        res.status(500).json({ message: 'Erro ao buscar reportes.' });
+        res.status(500).json({ message: 'Erro ao buscar reportes.', error: err.message });
     }
 });
 
