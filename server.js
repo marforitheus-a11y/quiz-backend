@@ -943,18 +943,30 @@ app.get('/admin/reports', authenticateToken, authorizeAdmin, async (req, res) =>
         
         console.log('[REPORTS] Tabela reports criada/verificada');
         
+        // Verificar se a coluna status existe e adicioná-la se necessário
+        try {
+            await db.query(`
+                ALTER TABLE reports 
+                ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending'
+            `);
+            console.log('[REPORTS] Coluna status verificada/adicionada');
+        } catch (alterError) {
+            console.log('[REPORTS] Erro ao alterar tabela (normal se já existir):', alterError.message);
+        }
+        
+        // Query simplificada que funciona mesmo sem algumas colunas
         const result = await db.query(`
             SELECT 
                 r.id, 
                 r.question_id, 
-                r.status, 
-                r.reason as error_type, 
-                r.description as details, 
-                q.question, 
-                u.username as reported_by, 
+                COALESCE(r.status, 'pending') as status,
+                COALESCE(r.reason, 'Não especificado') as error_type, 
+                COALESCE(r.description, 'Sem descrição') as details, 
+                COALESCE(q.question, 'Questão não encontrada') as question, 
+                COALESCE(u.username, 'Anônimo') as reported_by, 
                 r.created_at as reported_at 
             FROM reports r
-            JOIN questions q ON r.question_id = q.id
+            LEFT JOIN questions q ON r.question_id = q.id
             LEFT JOIN users u ON r.user_id = u.id
             ORDER BY r.created_at DESC LIMIT 20
         `);
@@ -964,6 +976,64 @@ app.get('/admin/reports', authenticateToken, authorizeAdmin, async (req, res) =>
     } catch (err) {
         console.error('Erro GET /admin/reports', err);
         res.status(500).json({ message: 'Erro ao buscar reportes.', error: err.message });
+    }
+});
+
+// Admin: criar reportes de teste
+app.post('/admin/create-test-reports', authenticateToken, authorizeAdmin, async (req, res) => {
+    try {
+        console.log('[REPORTS] Criando reportes de teste...');
+        
+        // Buscar algumas questões para criar reportes
+        const questionsResult = await db.query('SELECT id FROM questions LIMIT 3');
+        
+        if (questionsResult.rows.length === 0) {
+            return res.status(404).json({ message: 'Nenhuma questão encontrada para criar reportes.' });
+        }
+        
+        const testReports = [
+            {
+                question_id: questionsResult.rows[0].id,
+                reason: 'Erro de gramática',
+                description: 'A questão contém erros de gramática que podem confundir os candidatos.',
+                user_id: null
+            },
+            {
+                question_id: questionsResult.rows[0].id,
+                reason: 'Resposta incorreta',
+                description: 'A resposta marcada como correta parece estar errada.',
+                user_id: null
+            }
+        ];
+        
+        if (questionsResult.rows.length > 1) {
+            testReports.push({
+                question_id: questionsResult.rows[1].id,
+                reason: 'Enunciado confuso',
+                description: 'O enunciado da questão não está claro.',
+                user_id: null
+            });
+        }
+        
+        const createdReports = [];
+        for (const report of testReports) {
+            const result = await db.query(`
+                INSERT INTO reports (question_id, reason, description, user_id, status)
+                VALUES ($1, $2, $3, $4, 'pending')
+                RETURNING id
+            `, [report.question_id, report.reason, report.description, report.user_id]);
+            
+            createdReports.push(result.rows[0].id);
+        }
+        
+        console.log('[REPORTS] Reportes de teste criados:', createdReports);
+        res.status(200).json({ 
+            message: 'Reportes de teste criados com sucesso!', 
+            created_ids: createdReports 
+        });
+    } catch (err) {
+        console.error('Erro ao criar reportes de teste:', err);
+        res.status(500).json({ message: 'Erro ao criar reportes de teste.', error: err.message });
     }
 });
 
