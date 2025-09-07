@@ -915,8 +915,10 @@ app.get('/admin/reports', authenticateToken, authorizeAdmin, async (req, res) =>
 // Admin: list all questions with category info
 app.get('/admin/questions', authenticateToken, authorizeAdmin, async (req, res) => {
     try {
-        // First ensure the category_id column exists
+        // First ensure the required columns exist
         await db.query(`ALTER TABLE questions ADD COLUMN IF NOT EXISTS category_id INTEGER`);
+        await db.query(`ALTER TABLE questions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`);
+        await db.query(`ALTER TABLE questions ADD COLUMN IF NOT EXISTS difficulty TEXT`);
         
         const result = await db.query(`
             SELECT 
@@ -932,7 +934,7 @@ app.get('/admin/questions', authenticateToken, authorizeAdmin, async (req, res) 
                 EXISTS(SELECT 1 FROM reports r WHERE r.question_id = q.id) as reported
             FROM questions q
             LEFT JOIN categories c ON q.category_id = c.id
-            ORDER BY q.created_at DESC
+            ORDER BY q.id DESC
         `);
         res.status(200).json(result.rows);
     } catch (err) {
@@ -1106,6 +1108,7 @@ app.post('/admin/themes', authenticateToken, authorizeAdmin, upload.single('pdfF
             try { 
                 await db.query(`ALTER TABLE questions ADD COLUMN IF NOT EXISTS difficulty TEXT`); 
                 await db.query(`ALTER TABLE questions ADD COLUMN IF NOT EXISTS category_id INTEGER`);
+                await db.query(`ALTER TABLE questions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`);
             } catch (e) {}
             await db.query(
                 'INSERT INTO questions (theme_id, question, options, answer, difficulty, category_id) VALUES ($1, $2, $3, $4, $5, $6)',
@@ -1202,10 +1205,11 @@ app.post('/admin/themes/:id/add', authenticateToken, authorizeAdmin, upload.sing
 
         // insert generated questions appended to existing ones
         for (const q of generated) {
-            // ensure questions table has difficulty and category_id columns
+            // ensure questions table has difficulty, category_id and created_at columns
             try { 
                 await db.query(`ALTER TABLE questions ADD COLUMN IF NOT EXISTS difficulty TEXT`); 
                 await db.query(`ALTER TABLE questions ADD COLUMN IF NOT EXISTS category_id INTEGER`);
+                await db.query(`ALTER TABLE questions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`);
             } catch (e) {}
             
             // Get the category_id from theme if available
@@ -1243,6 +1247,7 @@ app.post('/admin/themes/:id/reset', authenticateToken, authorizeAdmin, upload.si
         for (const q of newQuestions) {
             try { 
                 await db.query(`ALTER TABLE questions ADD COLUMN IF NOT EXISTS category_id INTEGER`);
+                await db.query(`ALTER TABLE questions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`);
             } catch (e) {}
             await db.query(
                 'INSERT INTO questions (theme_id, question, options, answer, category_id) VALUES ($1, $2, $3, $4, $5)',
