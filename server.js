@@ -98,6 +98,17 @@ app.use(cors(corsOptions));
 
 // Security headers
 app.use(helmet());
+
+// TEMPORARY: log incoming requests (method, path, origin) to help debug routing issues like "Cannot POST /..."
+// Remove or reduce verbosity after debugging.
+app.use((req, res, next) => {
+    try {
+        const origin = req.headers.origin || req.headers.referer || '';
+        console.log(`[REQ] ${new Date().toISOString()} ${req.method} ${req.originalUrl} Host:${req.get('host')} Origin:${origin}`);
+    } catch (e) {}
+    next();
+});
+
 // Basic CSP additional header (can be refined for your assets)
 app.use((req, res, next) => {
     res.setHeader("Content-Security-Policy", "default-src 'self'; img-src 'self' data: https:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';");
@@ -130,17 +141,6 @@ app.use(passport.session());
 
 // --- 6.2. ROTAS DE AUTENTICAÇÃO SOCIAL ---
 app.use('/auth', authRoutes);
-
-
-// TEMPORARY: log incoming requests (method, path, origin) to help debug routing issues like "Cannot POST /..."
-// Remove or reduce verbosity after debugging.
-app.use((req, res, next) => {
-    try {
-        const origin = req.headers.origin || req.headers.referer || '';
-        console.log(`[REQ] ${new Date().toISOString()} ${req.method} ${req.originalUrl} Host:${req.get('host')} Origin:${origin}`);
-    } catch (e) {}
-    next();
-});
 
 // --- 7. FUNÇÕES AUXILIARES (MIDDLEWARES E IA) ---
 function authenticateToken(req, res, next) {
