@@ -912,6 +912,32 @@ app.get('/admin/reports', authenticateToken, authorizeAdmin, async (req, res) =>
     }
 });
 
+// Admin: list all questions with category info
+app.get('/admin/questions', authenticateToken, authorizeAdmin, async (req, res) => {
+    try {
+        const result = await db.query(`
+            SELECT 
+                q.id, 
+                q.theme_id, 
+                q.question, 
+                q.answer,
+                q.difficulty,
+                q.created_at,
+                q.category_id,
+                c.name as category_name,
+                (SELECT COUNT(*) FROM reports r WHERE r.question_id = q.id) as report_count,
+                EXISTS(SELECT 1 FROM reports r WHERE r.question_id = q.id) as reported
+            FROM questions q
+            LEFT JOIN categories c ON q.category_id = c.id
+            ORDER BY q.created_at DESC
+        `);
+        res.status(200).json(result.rows);
+    } catch (err) {
+        console.error('Erro GET /admin/questions', err);
+        res.status(500).json({ message: 'Erro ao buscar questões.' });
+    }
+});
+
 // Admin: fetch a single question (full JSON) for inspection/edit
 app.get('/admin/questions/:id', authenticateToken, authorizeAdmin, async (req, res) => {
     const qid = parseInt(req.params.id, 10);
@@ -967,6 +993,73 @@ app.put('/admin/questions/:id', authenticateToken, authorizeAdmin, express.json(
             if (err && err.detail) errPayload.detail = String(err.detail);
         } catch (e) { errPayload.error = String(err && err.message ? err.message : err); }
         res.status(500).json(errPayload);
+    }
+});
+
+// Admin: delete a question
+app.delete('/admin/questions/:id', authenticateToken, authorizeAdmin, async (req, res) => {
+    const qid = parseInt(req.params.id, 10);
+    if (!qid) return res.status(400).json({ message: 'ID inválido.' });
+    
+    try {
+        // First delete any reports for this question
+        await db.query('DELETE FROM reports WHERE question_id = $1', [qid]);
+        
+        // Then delete the question
+        const result = await db.query('DELETE FROM questions WHERE id = $1 RETURNING id', [qid]);
+        if (result.rowCount === 0) {
+            return res.status(404).json({ message: 'Questão não encontrada.' });
+        }
+        
+        res.status(200).json({ message: 'Questão excluída com sucesso.', id: qid });
+    } catch (err) {
+        console.error('Erro DELETE /admin/questions/:id', err);
+        res.status(500).json({ message: 'Erro ao excluir questão.' });
+    }
+});
+
+// Admin: duplicate a question
+app.post('/admin/questions/:id/duplicate', authenticateToken, authorizeAdmin, async (req, res) => {
+    const qid = parseInt(req.params.id, 10);
+    if (!qid) return res.status(400).json({ message: 'ID inválido.' });
+    
+    try {
+        // Get original question
+        const original = await db.query('SELECT * FROM questions WHERE id = $1', [qid]);
+        if (original.rowCount === 0) {
+            return res.status(404).json({ message: 'Questão não encontrada.' });
+        }
+        
+        const q = original.rows[0];
+        
+        // Create duplicate
+        const result = await db.query(`
+            INSERT INTO questions (theme_id, question, options, answer, difficulty, category_id)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING *
+        `, [q.theme_id, q.question + ' (cópia)', q.options, q.answer, q.difficulty, q.category_id]);
+        
+        res.status(201).json(result.rows[0]);
+    } catch (err) {
+        console.error('Erro POST /admin/questions/:id/duplicate', err);
+        res.status(500).json({ message: 'Erro ao duplicar questão.' });
+    }
+});
+
+// Admin: mark question reports as resolved
+app.put('/admin/questions/:id/resolve-reports', authenticateToken, authorizeAdmin, async (req, res) => {
+    const qid = parseInt(req.params.id, 10);
+    if (!qid) return res.status(400).json({ message: 'ID inválido.' });
+    
+    try {
+        const result = await db.query('DELETE FROM reports WHERE question_id = $1 RETURNING id', [qid]);
+        res.status(200).json({ 
+            message: 'Reports resolvidos com sucesso.',
+            resolved_count: result.rowCount
+        });
+    } catch (err) {
+        console.error('Erro PUT /admin/questions/:id/resolve-reports', err);
+        res.status(500).json({ message: 'Erro ao resolver reports.' });
     }
 });
 
@@ -1227,6 +1320,28 @@ app.post('/admin/categories', authenticateToken, authorizeAdmin, express.json(),
     } catch (err) {
         console.error('Erro categories POST:', err);
         res.status(500).json({ message: 'Erro ao criar categoria.' });
+    }
+});
+
+// Admin: rename/update category
+app.put('/admin/categories/:id', authenticateToken, authorizeAdmin, express.json(), async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const { name } = req.body;
+    
+    if (!name || !name.trim()) {
+        return res.status(400).json({ message: 'Nome da categoria é obrigatório.' });
+    }
+    
+    try {
+        const result = await db.query('UPDATE categories SET name = $1 WHERE id = $2 RETURNING *', [name.trim(), id]);
+        if (result.rowCount === 0) {
+            return res.status(404).json({ message: 'Categoria não encontrada.' });
+        }
+        
+        res.status(200).json(result.rows[0]);
+    } catch (err) {
+        console.error('Erro categories PUT:', err);
+        res.status(500).json({ message: 'Erro ao renomear categoria.' });
     }
 });
 
