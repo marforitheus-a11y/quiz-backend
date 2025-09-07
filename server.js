@@ -104,7 +104,15 @@ app.use((req, res, next) => {
     try {
         const origin = req.headers.origin || req.headers.referer || '';
         console.log(`[REQ] ${new Date().toISOString()} ${req.method} ${req.originalUrl} Host:${req.get('host')} Origin:${origin}`);
-    } catch (e) {}
+        
+        // Log especial para rotas de auth
+        if (req.originalUrl.startsWith('/auth')) {
+            console.log(`[AUTH-REQ] Auth route detected: ${req.method} ${req.originalUrl}`);
+            console.log(`[AUTH-REQ] Headers:`, JSON.stringify(req.headers, null, 2));
+        }
+    } catch (e) {
+        console.error('[REQ-LOG-ERROR]', e);
+    }
     next();
 });
 
@@ -139,9 +147,20 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 // Configurar estratégias do Passport
-require('./app/auth_config.js')(passport);
+try {
+    require('./app/auth_config.js')(passport);
+    console.log('[PASSPORT] Estratégias do Passport configuradas com sucesso');
+} catch (error) {
+    console.error('[PASSPORT-ERROR] Erro ao configurar estratégias do Passport:', error);
+    console.error('[PASSPORT-ERROR] Stack:', error.stack);
+}
 
 // --- 6.2. ROTAS DE AUTENTICAÇÃO SOCIAL ---
+// Rota de teste para debug
+app.get('/auth/test', (req, res) => {
+    res.json({ message: 'Auth routes are working!', timestamp: new Date().toISOString() });
+});
+
 app.use('/auth', authRoutes);
 
 // --- 7. FUNÇÕES AUXILIARES (MIDDLEWARES E IA) ---
