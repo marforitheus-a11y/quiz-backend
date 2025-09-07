@@ -156,6 +156,19 @@ try {
 }
 
 // --- 6.2. ROTAS DE AUTENTICAÇÃO SOCIAL ---
+// Debug endpoint para verificar configurações OAuth
+app.get('/auth/debug', (req, res) => {
+    const config = {
+        google_client_id: process.env.GOOGLE_CLIENT_ID ? 'Configurado' : 'NÃO CONFIGURADO',
+        google_client_secret: process.env.GOOGLE_CLIENT_SECRET ? 'Configurado' : 'NÃO CONFIGURADO',
+        facebook_app_id: process.env.FACEBOOK_APP_ID ? 'Configurado' : 'NÃO CONFIGURADO',
+        facebook_app_secret: process.env.FACEBOOK_APP_SECRET ? 'Configurado' : 'NÃO CONFIGURADO',
+        session_secret: process.env.SESSION_SECRET ? 'Configurado' : 'NÃO CONFIGURADO',
+        node_env: process.env.NODE_ENV || 'NÃO CONFIGURADO'
+    };
+    res.json(config);
+});
+
 // Rota de teste para debug
 app.get('/auth/test', (req, res) => {
     res.json({ message: 'Auth routes are working!', timestamp: new Date().toISOString() });
