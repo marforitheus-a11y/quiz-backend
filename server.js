@@ -802,11 +802,22 @@ app.get('/admin/sessions', authenticateToken, authorizeAdmin, (req, res) => {
 
 app.get('/admin/users', authenticateToken, authorizeAdmin, async (req, res) => {
     try {
+        // Verificar se as colunas existem antes de fazer a query
+        await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT`);
+        await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS facebook_id TEXT`);
+        await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS name TEXT`);
+        await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT`);
+        await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_pay BOOLEAN DEFAULT false`);
+        await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_expires_at TIMESTAMP`);
+        await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_quiz_date DATE`);
+        await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_quiz_count INTEGER DEFAULT 0`);
+        
         const result = await db.query('SELECT id, name, username, email, role, is_pay, subscription_expires_at, last_quiz_date, daily_quiz_count FROM users ORDER BY id ASC');
         res.status(200).json(result.rows);
     } catch (err) {
         console.error("Erro ao buscar usuários:", err);
-        res.status(500).json({ message: 'Erro ao buscar usuários.' });
+        console.error("Stack trace:", err.stack);
+        res.status(500).json({ message: 'Erro ao buscar usuários.', error: err.message });
     }
 });
 
