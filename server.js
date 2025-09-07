@@ -1004,12 +1004,14 @@ app.get('/admin/questions', authenticateToken, authorizeAdmin, async (req, res) 
                 q.difficulty,
                 q.created_at,
                 q.category_id,
+                t.name as theme_name,
                 COALESCE(c.name, 'Sem Categoria') as category_name,
                 (SELECT COUNT(*) FROM reports r WHERE r.question_id = q.id) as report_count,
                 EXISTS(SELECT 1 FROM reports r WHERE r.question_id = q.id) as reported
             FROM questions q
-            LEFT JOIN categories c ON q.category_id = c.id
-            ORDER BY q.id DESC
+            LEFT JOIN themes t ON q.theme_id = t.id
+            LEFT JOIN categories c ON COALESCE(t.category_id, q.category_id) = c.id
+            ORDER BY COALESCE(c.name, 'Sem Categoria'), t.name, q.id DESC
         `);
         
         // Parse options from JSON string to array
