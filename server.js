@@ -23,7 +23,6 @@ const axios = require('axios');
 const FormData = require('form-data');
 const session = require('express-session');
 const passport = require('passport');
-require('./app/auth_config.js');
 const authRoutes = require('./app/auth_routes.js');
 
 // --- 2. INICIALIZAÇÃO DE VARIÁVEIS E CLIENTES ---
@@ -138,6 +137,9 @@ app.use(session({
 
 app.use(passport.initialize());
 app.use(passport.session());
+
+// Configurar estratégias do Passport
+require('./app/auth_config.js')(passport);
 
 // --- 6.2. ROTAS DE AUTENTICAÇÃO SOCIAL ---
 app.use('/auth', authRoutes);
