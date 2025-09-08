@@ -1231,6 +1231,239 @@ app.post('/admin/create-test-reports', authenticateToken, authorizeAdmin, async 
     }
 });
 
+// Admin: Endpoint para correção avançada de categorias
+app.post('/admin/fix-categories-advanced', authenticateToken, authorizeAdmin, async (req, res) => {
+    try {
+        console.log('[CATEGORIES] Iniciando correção avançada de categorias...');
+        
+        // 1. Verificar estrutura atual
+        const currentStats = await db.query(`
+            SELECT 
+                c.name, 
+                COUNT(q.id) as count 
+            FROM categories c
+            LEFT JOIN questions q ON c.id = q.category_id
+            GROUP BY c.id, c.name
+            ORDER BY count DESC
+        `);
+        
+        console.log('[CATEGORIES] Estatísticas atuais:', currentStats.rows);
+        
+        // 2. Buscar IDs das categorias
+        const categories = await db.query('SELECT id, name FROM categories ORDER BY name');
+        const categoryMap = {};
+        categories.rows.forEach(cat => {
+            categoryMap[cat.name] = cat.id;
+        });
+        
+        // 3. Garantir que categorias essenciais existam
+        const essentialCategories = [
+            'Português', 'Matemática', 'História', 'Geografia', 'Ciências', 
+            'Física', 'Química', 'Biologia', 'Literatura', 'Inglês',
+            'Educação Física', 'Artes', 'Filosofia', 'Sociologia', 'Informática'
+        ];
+        
+        for (const catName of essentialCategories) {
+            if (!categoryMap[catName]) {
+                const result = await db.query('INSERT INTO categories (name) VALUES ($1) RETURNING id', [catName]);
+                categoryMap[catName] = result.rows[0].id;
+                console.log(`[CATEGORIES] Categoria "${catName}" criada com ID ${result.rows[0].id}`);
+            }
+        }
+        
+        // 4. Garantir "Sem Categoria"
+        let semCategoriaId = categoryMap['Sem Categoria'];
+        if (!semCategoriaId) {
+            const result = await db.query('INSERT INTO categories (name) VALUES ($1) RETURNING id', ['Sem Categoria']);
+            semCategoriaId = result.rows[0].id;
+            categoryMap['Sem Categoria'] = semCategoriaId;
+        }
+        
+        // 5. Buscar questões para reclassificar
+        const questionsToFix = await db.query(`
+            SELECT id, question, options
+            FROM questions 
+            WHERE category_id IS NULL OR category_id = $1
+            ORDER BY id
+        `, [semCategoriaId]);
+        
+        console.log(`[CATEGORIES] Encontradas ${questionsToFix.rows.length} questões para reclassificar`);
+        
+        // 6. Regras de classificação avançadas
+        const classificationRules = [
+            {
+                category: 'Português',
+                patterns: [
+                    /português|gramática|ortografia|literatura|redação|linguagem|texto|interpretação/i,
+                    /verbo|substantivo|adjetivo|pronome|artigo|preposição/i,
+                    /concordância|regência|crase|acentuação|pontuação/i
+                ]
+            },
+            {
+                category: 'Matemática',
+                patterns: [
+                    /matemática|número|equação|função|cálculo|álgebra|geometria/i,
+                    /soma|subtração|multiplicação|divisão|porcentagem|fração/i,
+                    /triângulo|círculo|área|perímetro|volume|teorema/i,
+                    /\b\d+\s*[\+\-\*\/]\s*\d+/,
+                    /x\s*[\+\-\*\/=]\s*\d+/
+                ]
+            },
+            {
+                category: 'História',
+                patterns: [
+                    /história|histórico|império|república|revolução|guerra/i,
+                    /brasil colônia|independência|proclamação|getúlio vargas/i,
+                    /primeira guerra|segunda guerra|idade média|renascimento/i,
+                    /escravidão|abolição|lei áurea/i
+                ]
+            },
+            {
+                category: 'Geografia',
+                patterns: [
+                    /geografia|geográfica|clima|relevo|vegetação|hidrografia/i,
+                    /brasil|região|estado|capital|cidade|país|continente/i,
+                    /amazônia|cerrado|caatinga|mata atlântica/i,
+                    /latitude|longitude|meridiano|paralelo/i
+                ]
+            },
+            {
+                category: 'Ciências',
+                patterns: [
+                    /ciência|científico|experimento|laboratório|pesquisa/i,
+                    /átomo|molécula|elemento|químico|reação|substância/i,
+                    /célula|organismo|sistema|órgão|tecido|dna|rna/i,
+                    /força|energia|movimento|velocidade|aceleração/i
+                ]
+            },
+            {
+                category: 'Física',
+                patterns: [
+                    /física|mecânica|termodinâmica|eletricidade|magnetismo/i,
+                    /força|massa|velocidade|aceleração|energia|trabalho/i,
+                    /newton|einstein|galileu/i,
+                    /calor|temperatura|pressão|densidade/i
+                ]
+            },
+            {
+                category: 'Química',
+                patterns: [
+                    /química|elemento|composto|reação|fórmula|ligação/i,
+                    /tabela periódica|átomo|íon|mol|concentração/i,
+                    /ácido|base|sal|ph|oxidação|redução/i
+                ]
+            },
+            {
+                category: 'Biologia',
+                patterns: [
+                    /biologia|célula|organismo|espécie|evolução|genética/i,
+                    /dna|rna|gene|cromossomo|mitose|meiose/i,
+                    /sistema nervoso|circulatório|respiratório|digestivo/i
+                ]
+            }
+        ];
+        
+        // 7. Classificar questões
+        let reclassified = 0;
+        const byCategory = {};
+        
+        for (const question of questionsToFix.rows) {
+            const fullText = `${question.question} ${question.options ? question.options.join(' ') : ''}`;
+            let classified = false;
+            
+            // Testar cada regra de classificação
+            for (const rule of classificationRules) {
+                if (!classified && categoryMap[rule.category]) {
+                    for (const pattern of rule.patterns) {
+                        if (pattern.test(fullText)) {
+                            // Classificar a questão
+                            await db.query(
+                                'UPDATE questions SET category_id = $1 WHERE id = $2',
+                                [categoryMap[rule.category], question.id]
+                            );
+                            
+                            reclassified++;
+                            byCategory[rule.category] = (byCategory[rule.category] || 0) + 1;
+                            classified = true;
+                            break;
+                        }
+                    }
+                    if (classified) break;
+                }
+            }
+        }
+        
+        // 8. Distribuir questões restantes de forma equilibrada
+        const remaining = await db.query(`
+            SELECT COUNT(*) as count 
+            FROM questions 
+            WHERE category_id = $1
+        `, [semCategoriaId]);
+        
+        const remainingCount = parseInt(remaining.rows[0].count);
+        
+        if (remainingCount > 50) {
+            // Pegar categorias principais para distribuição
+            const mainCategories = ['Português', 'Matemática', 'História', 'Geografia', 'Ciências'];
+            const questionsPerCategory = Math.floor(remainingCount / mainCategories.length);
+            
+            for (let i = 0; i < mainCategories.length; i++) {
+                const catName = mainCategories[i];
+                if (categoryMap[catName]) {
+                    const limit = i === mainCategories.length - 1 ? 
+                        remainingCount - (questionsPerCategory * i) : 
+                        questionsPerCategory;
+                    
+                    const result = await db.query(`
+                        UPDATE questions 
+                        SET category_id = $1 
+                        WHERE id IN (
+                            SELECT id 
+                            FROM questions 
+                            WHERE category_id = $2 
+                            ORDER BY id 
+                            LIMIT $3
+                        )
+                    `, [categoryMap[catName], semCategoriaId, limit]);
+                    
+                    byCategory[catName] = (byCategory[catName] || 0) + result.rowCount;
+                }
+            }
+        }
+        
+        // 9. Estatísticas finais
+        const finalStats = await db.query(`
+            SELECT 
+                c.name, 
+                COUNT(q.id) as count 
+            FROM categories c
+            LEFT JOIN questions q ON c.id = q.category_id
+            GROUP BY c.id, c.name
+            HAVING COUNT(q.id) > 0
+            ORDER BY count DESC
+        `);
+        
+        console.log('[CATEGORIES] Estatísticas finais:', finalStats.rows);
+        
+        res.status(200).json({
+            message: 'Correção de categorias concluída!',
+            reclassified: reclassified,
+            byCategory: byCategory,
+            finalStats: finalStats.rows.map(row => ({
+                category: row.name,
+                count: parseInt(row.count)
+            }))
+        });
+        
+    } catch (err) {
+        console.error('[CATEGORIES] Erro na correção:', err);
+        res.status(500).json({ 
+            message: 'Erro na correção de categorias.', 
+            error: err.message 
+        });
+    }
+});
+
 // Admin: Test endpoint para debug
 app.get('/admin/dashboard/test', authenticateToken, authorizeAdmin, async (req, res) => {
     console.log('[TEST] Endpoint de teste chamado');
