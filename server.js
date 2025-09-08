@@ -917,11 +917,205 @@ app.put('/admin/users/:id', authenticateToken, authorizeAdmin, async (req, res) 
     }
 });
 
+// Admin: Delete user
+app.delete('/admin/users/:id', authenticateToken, authorizeAdmin, async (req, res) => {
+    const { id } = req.params;
+    
+    try {
+        // Verificar se o usuário existe primeiro
+        const userExists = await db.query('SELECT id, username, role FROM users WHERE id = $1', [id]);
+        
+        if (userExists.rows.length === 0) {
+            return res.status(404).json({ message: "Usuário não encontrado." });
+        }
+        
+        const user = userExists.rows[0];
+        
+        // Não permitir excluir admins
+        if (user.role === 'admin') {
+            return res.status(403).json({ message: "Não é possível excluir usuários administradores." });
+        }
+        
+        // Não permitir que o usuário exclua a si mesmo
+        if (parseInt(id) === req.user.id) {
+            return res.status(403).json({ message: "Não é possível excluir seu próprio usuário." });
+        }
+        
+        console.log(`[DELETE-USER] Admin ${req.user.username} excluindo usuário ${user.username} (ID: ${id})`);
+        
+        // Excluir registros relacionados primeiro (se existirem)
+        try {
+            await db.query('DELETE FROM quiz_sessions WHERE user_id = $1', [id]);
+            await db.query('DELETE FROM user_answers WHERE user_id = $1', [id]);
+        } catch (relatedErr) {
+            console.log('[DELETE-USER] Aviso ao excluir dados relacionados:', relatedErr.message);
+        }
+        
+        // Excluir o usuário
+        const deleteResult = await db.query('DELETE FROM users WHERE id = $1 RETURNING id, username', [id]);
+        
+        if (deleteResult.rows.length === 0) {
+            return res.status(404).json({ message: "Usuário não encontrado." });
+        }
+        
+        console.log(`[DELETE-USER] Usuário ${deleteResult.rows[0].username} excluído com sucesso`);
+        res.status(200).json({ 
+            message: "Usuário excluído com sucesso.", 
+            deletedUser: deleteResult.rows[0] 
+        });
+        
+    } catch (err) {
+        console.error(`Erro ao excluir usuário ${id}:`, err);
+        res.status(500).json({ 
+            message: 'Erro interno no servidor ao excluir o usuário.',
+            error: err.message
+        });
+    }
+});
+
 app.post('/admin/message', authenticateToken, authorizeAdmin, (req, res) => {
     const { message } = req.body;
     globalMessage = message;
     setTimeout(() => { globalMessage = null; }, 60000);
     res.status(200).json({ message: "Mensagem global enviada com sucesso!" });
+});
+
+// Admin: Fix categories (temporary endpoint)
+app.post('/admin/fix-categories', authenticateToken, authorizeAdmin, async (req, res) => {
+    try {
+        console.log('[FIX-CATEGORIES] Iniciando correção de categorias...');
+        
+        // 1. Verificar e criar categorias padrão se não existirem
+        const defaultCategories = [
+            'Português',
+            'Matemática', 
+            'História',
+            'Geografia',
+            'Ciências',
+            'Direito Constitucional',
+            'Direito Administrativo',
+            'Informática',
+            'Conhecimentos Gerais',
+            'Raciocínio Lógico'
+        ];
+        
+        const createdCategories = [];
+        for (const categoryName of defaultCategories) {
+            try {
+                const existingCategory = await db.query('SELECT id FROM categories WHERE name = $1', [categoryName]);
+                if (existingCategory.rows.length === 0) {
+                    const newCategory = await db.query('INSERT INTO categories (name) VALUES ($1) RETURNING id, name', [categoryName]);
+                    createdCategories.push(newCategory.rows[0]);
+                    console.log(`[FIX-CATEGORIES] Categoria criada: ${categoryName}`);
+                }
+            } catch (err) {
+                console.log(`[FIX-CATEGORIES] Erro ao criar categoria ${categoryName}:`, err.message);
+            }
+        }
+        
+        // 2. Garantir que "Sem Categoria" existe
+        let semCategoriaId;
+        const semCategoriaResult = await db.query('SELECT id FROM categories WHERE name = $1', ['Sem Categoria']);
+        if (semCategoriaResult.rows.length === 0) {
+            const insertResult = await db.query('INSERT INTO categories (name) VALUES ($1) RETURNING id', ['Sem Categoria']);
+            semCategoriaId = insertResult.rows[0].id;
+            console.log('[FIX-CATEGORIES] Categoria "Sem Categoria" criada');
+        } else {
+            semCategoriaId = semCategoriaResult.rows[0].id;
+        }
+        
+        // 3. Atualizar questões sem categoria
+        const questionsWithoutCategory = await db.query('SELECT COUNT(*) as count FROM questions WHERE category_id IS NULL');
+        console.log(`[FIX-CATEGORIES] Questões sem categoria: ${questionsWithoutCategory.rows[0].count}`);
+        
+        if (questionsWithoutCategory.rows[0].count > 0) {
+            await db.query('UPDATE questions SET category_id = $1 WHERE category_id IS NULL', [semCategoriaId]);
+            console.log(`[FIX-CATEGORIES] ${questionsWithoutCategory.rows[0].count} questões atualizadas para "Sem Categoria"`);
+        }
+        
+        // 4. Tentar associar questões a categorias baseadas no conteúdo
+        const allCategories = await db.query('SELECT id, name FROM categories WHERE name != $1', ['Sem Categoria']);
+        let reclassifiedCount = 0;
+        
+        for (const category of allCategories.rows) {
+            const categoryName = category.name.toLowerCase();
+            let searchTerms = [];
+            
+            // Definir termos de busca para cada categoria
+            switch(categoryName) {
+                case 'português':
+                    searchTerms = ['português', 'gramática', 'ortografia', 'sintaxe', 'semântica', 'literatura'];
+                    break;
+                case 'matemática':
+                    searchTerms = ['matemática', 'número', 'equação', 'função', 'geometria', 'álgebra', 'cálculo'];
+                    break;
+                case 'história':
+                    searchTerms = ['história', 'histórico', 'período', 'século', 'guerra', 'revolução'];
+                    break;
+                case 'geografia':
+                    searchTerms = ['geografia', 'clima', 'relevo', 'hidrografia', 'população', 'país', 'região'];
+                    break;
+                case 'direito constitucional':
+                    searchTerms = ['constituição', 'constitucional', 'direitos fundamentais', 'poder legislativo', 'poder executivo'];
+                    break;
+                case 'direito administrativo':
+                    searchTerms = ['administrativo', 'servidor público', 'licitação', 'contratos administrativos'];
+                    break;
+                case 'informática':
+                    searchTerms = ['informática', 'computador', 'software', 'hardware', 'internet', 'programa'];
+                    break;
+            }
+            
+            if (searchTerms.length > 0) {
+                const searchPattern = searchTerms.join('|');
+                try {
+                    const result = await db.query(`
+                        UPDATE questions 
+                        SET category_id = $1 
+                        WHERE category_id = $2 
+                        AND (question ~* $3 OR array_to_string(options, ' ') ~* $3)
+                    `, [category.id, semCategoriaId, searchPattern]);
+                    
+                    if (result.rowCount > 0) {
+                        reclassifiedCount += result.rowCount;
+                        console.log(`[FIX-CATEGORIES] ${result.rowCount} questões reclassificadas para "${category.name}"`);
+                    }
+                } catch (err) {
+                    console.log(`[FIX-CATEGORIES] Erro ao reclassificar para ${category.name}:`, err.message);
+                }
+            }
+        }
+        
+        // 5. Verificar resultado final
+        const finalStats = await db.query(`
+            SELECT 
+                c.name,
+                COUNT(q.id) as question_count
+            FROM categories c
+            LEFT JOIN questions q ON c.id = q.category_id
+            GROUP BY c.id, c.name
+            ORDER BY question_count DESC
+        `);
+        
+        console.log('[FIX-CATEGORIES] Estatísticas finais:');
+        finalStats.rows.forEach(row => {
+            console.log(`  ${row.name}: ${row.question_count} questões`);
+        });
+        
+        res.status(200).json({
+            message: 'Categorias corrigidas com sucesso!',
+            createdCategories: createdCategories,
+            reclassifiedQuestions: reclassifiedCount,
+            categoriesStats: finalStats.rows
+        });
+        
+    } catch (err) {
+        console.error('[FIX-CATEGORIES] Erro:', err);
+        res.status(500).json({ 
+            message: 'Erro ao corrigir categorias',
+            error: err.message 
+        });
+    }
 });
 
 app.get('/admin/reports', authenticateToken, authorizeAdmin, async (req, res) => {
