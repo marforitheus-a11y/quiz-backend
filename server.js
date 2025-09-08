@@ -1713,6 +1713,183 @@ app.get('/public/diagnose-categories', async (req, res) => {
     }
 });
 
+// Endpoint público para correção usando apenas categorias reais/originais
+app.post('/public/fix-real-categories', async (req, res) => {
+    try {
+        console.log('[REAL-FIX] Iniciando correção com categorias reais...');
+        
+        // 1. Identificar categorias originais (IDs baixos, criadas antes do script)
+        const originalCategoryIds = [3, 4, 5, 6, 7, 8, 11]; // IDs das categorias originais
+        
+        // 2. Buscar todas as questões que estão em categorias criadas pelo script
+        const questionsInFakeCategories = await db.query(`
+            SELECT q.id, q.question, q.options 
+            FROM questions q 
+            WHERE q.category_id NOT IN (${originalCategoryIds.join(',')})
+        `);
+        
+        console.log(`[REAL-FIX] Encontradas ${questionsInFakeCategories.rows.length} questões em categorias artificiais`);
+        
+        // 3. Mover todas essas questões para "Sem Categoria" (ID 11)
+        const moveResult = await db.query(`
+            UPDATE questions 
+            SET category_id = 11 
+            WHERE category_id NOT IN (${originalCategoryIds.join(',')})
+        `);
+        
+        console.log(`[REAL-FIX] ${moveResult.rowCount} questões movidas para "Sem Categoria"`);
+        
+        // 4. Remover categorias criadas pelo script (IDs > 11 que não são originais)
+        const deleteResult = await db.query(`
+            DELETE FROM categories 
+            WHERE id NOT IN (${originalCategoryIds.join(',')})
+        `);
+        
+        console.log(`[REAL-FIX] ${deleteResult.rowCount} categorias artificiais removidas`);
+        
+        // 5. Agora classificar questões usando apenas categorias originais
+        const questionsToClassify = await db.query(`
+            SELECT id, question, options 
+            FROM questions 
+            WHERE category_id = 11 
+            ORDER BY id
+        `);
+        
+        console.log(`[REAL-FIX] Classificando ${questionsToClassify.rows.length} questões nas categorias originais...`);
+        
+        // Regras de classificação usando apenas categorias originais
+        let reclassified = 0;
+        const byCategory = {};
+        
+        for (const question of questionsToClassify.rows) {
+            const fullText = `${question.question} ${question.options ? question.options.join(' ') : ''}`.toLowerCase();
+            let classified = false;
+            
+            // Matemática (ID 5)
+            if (!classified && (
+                fullText.includes('matemática') || 
+                fullText.includes('número') || 
+                fullText.includes('cálculo') ||
+                fullText.includes('equação') ||
+                fullText.includes('soma') ||
+                fullText.includes('subtração') ||
+                /\d+\s*[\+\-\*\/]\s*\d+/.test(fullText) ||
+                /x\s*[\+\-\*\/=]\s*\d+/.test(fullText)
+            )) {
+                await db.query('UPDATE questions SET category_id = 5 WHERE id = $1', [question.id]);
+                reclassified++;
+                byCategory['Matemática'] = (byCategory['Matemática'] || 0) + 1;
+                classified = true;
+            }
+            
+            // Português (ID 6) - usando grafia original "Portugues"
+            if (!classified && (
+                fullText.includes('português') || 
+                fullText.includes('portugues') ||
+                fullText.includes('gramática') || 
+                fullText.includes('ortografia') ||
+                fullText.includes('literatura') ||
+                fullText.includes('texto') ||
+                fullText.includes('interpretação') ||
+                fullText.includes('verbo') ||
+                fullText.includes('substantivo')
+            )) {
+                await db.query('UPDATE questions SET category_id = 6 WHERE id = $1', [question.id]);
+                reclassified++;
+                byCategory['Portugues'] = (byCategory['Portugues'] || 0) + 1;
+                classified = true;
+            }
+            
+            // Agente de trânsito (ID 3)
+            if (!classified && (
+                fullText.includes('trânsito') ||
+                fullText.includes('transito') ||
+                fullText.includes('agente') ||
+                fullText.includes('ctb') ||
+                fullText.includes('código de trânsito') ||
+                fullText.includes('velocidade máxima') ||
+                fullText.includes('sinalização')
+            )) {
+                await db.query('UPDATE questions SET category_id = 3 WHERE id = $1', [question.id]);
+                reclassified++;
+                byCategory['Agente de transito'] = (byCategory['Agente de transito'] || 0) + 1;
+                classified = true;
+            }
+            
+            // Prof. Educação básica (ID 4)
+            if (!classified && (
+                fullText.includes('educação') ||
+                fullText.includes('professor') ||
+                fullText.includes('ensino') ||
+                fullText.includes('pedagog') ||
+                fullText.includes('didática') ||
+                fullText.includes('currículo')
+            )) {
+                await db.query('UPDATE questions SET category_id = 4 WHERE id = $1', [question.id]);
+                reclassified++;
+                byCategory['Prof. Educação básica'] = (byCategory['Prof. Educação básica'] || 0) + 1;
+                classified = true;
+            }
+            
+            // GCM - Diadema (ID 7)
+            if (!classified && (
+                fullText.includes('diadema') ||
+                fullText.includes('gcm') && fullText.includes('diadema')
+            )) {
+                await db.query('UPDATE questions SET category_id = 7 WHERE id = $1', [question.id]);
+                reclassified++;
+                byCategory['GCM - Diadema'] = (byCategory['GCM - Diadema'] || 0) + 1;
+                classified = true;
+            }
+            
+            // GCM - Hortolândia (ID 8)
+            if (!classified && (
+                fullText.includes('hortolândia') ||
+                fullText.includes('hortolandia') ||
+                fullText.includes('gcm') && fullText.includes('hortolândia')
+            )) {
+                await db.query('UPDATE questions SET category_id = 8 WHERE id = $1', [question.id]);
+                reclassified++;
+                byCategory['GCM - Hortolândia'] = (byCategory['GCM - Hortolândia'] || 0) + 1;
+                classified = true;
+            }
+        }
+        
+        // 6. Estatísticas finais com apenas categorias originais
+        const finalStats = await db.query(`
+            SELECT 
+                c.name, 
+                COUNT(q.id) as count 
+            FROM categories c
+            LEFT JOIN questions q ON c.id = q.category_id
+            GROUP BY c.id, c.name
+            HAVING COUNT(q.id) > 0
+            ORDER BY count DESC
+        `);
+        
+        console.log('[REAL-FIX] Estatísticas finais com categorias reais:', finalStats.rows);
+        
+        res.status(200).json({
+            message: 'Correção com categorias reais concluída!',
+            moved: moveResult.rowCount,
+            deleted: deleteResult.rowCount,
+            reclassified: reclassified,
+            byCategory: byCategory,
+            finalStats: finalStats.rows.map(row => ({
+                category: row.name,
+                count: parseInt(row.count)
+            }))
+        });
+        
+    } catch (err) {
+        console.error('[REAL-FIX] Erro na correção real:', err);
+        res.status(500).json({ 
+            message: 'Erro na correção com categorias reais.', 
+            error: err.message 
+        });
+    }
+});
+
 // Admin: Test endpoint para debug
 app.get('/admin/dashboard/test', authenticateToken, authorizeAdmin, async (req, res) => {
     console.log('[TEST] Endpoint de teste chamado');
