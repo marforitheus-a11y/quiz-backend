@@ -626,28 +626,425 @@ function sanitizeQuestionRow(row) {
 
 // --- 8. ROTAS DA API ---
 
-// ROTA DE CADASTRO (NOVA)
+// ROTA DE CADASTRO COM LGPD (ATUALIZADA)
 app.post('/signup', async (req, res) => {
-    const { name, email, username, password } = req.body;
+    const { name, email, username, password, consents, gdprCompliance } = req.body;
+    
+    // Validação básica de campos obrigatórios
     if (!name || !email || !username || !password) {
         return res.status(400).json({ message: "Nome, e-mail, usuário e senha são obrigatórios." });
     }
+
+    // Validação de consentimentos obrigatórios LGPD
+    if (!consents || !consents.essential || !consents.termsAccepted || !consents.privacyPolicyAccepted) {
+        return res.status(400).json({ 
+            message: "É necessário aceitar os termos de uso e autorizar o tratamento de dados essenciais." 
+        });
+    }
+
     try {
+        // Verificar se usuário já existe
         const existingUser = await db.query('SELECT * FROM users WHERE username = $1 OR email = $2', [username, email]);
         if (existingUser.rows.length > 0) {
             return res.status(409).json({ message: "Nome de usuário ou e-mail já cadastrado." });
         }
+
+        // Hash da senha
         const hashedPassword = await bcrypt.hash(password, 10);
-        const result = await db.query(
-            'INSERT INTO users (name, email, username, password, role, is_pay, daily_quiz_count) VALUES ($1, $2, $3, $4, $5, $6, 0) RETURNING id, name, username, role',
-            [name, email, username, hashedPassword, 'user', false]
+
+        // Inserir usuário com dados de consentimento LGPD
+        const userResult = await db.query(
+            `INSERT INTO users (name, email, username, password, role, is_pay, daily_quiz_count, 
+             created_at, gdpr_consent_date, gdpr_ip_address, gdpr_user_agent) 
+             VALUES ($1, $2, $3, $4, $5, $6, 0, NOW(), NOW(), $7, $8) 
+             RETURNING id, name, username, role, created_at`,
+            [name, email, username, hashedPassword, 'user', false, 
+             gdprCompliance?.ipAddress || 'unknown', 
+             gdprCompliance?.userAgent || 'unknown']
         );
-        res.status(201).json({ message: "Conta criada com sucesso!", user: result.rows[0] });
+
+        const userId = userResult.rows[0].id;
+
+        // Inserir consentimentos detalhados na tabela de consentimentos
+        const consentData = {
+            user_id: userId,
+            essential_data: consents.essential,
+            performance_analysis: consents.performance || false,
+            personalization: consents.personalization || false,
+            marketing_emails: consents.marketing || false,
+            analytics_cookies: consents.analytics || false,
+            terms_accepted: consents.termsAccepted,
+            terms_accepted_at: consents.termsAcceptedAt || new Date().toISOString(),
+            privacy_policy_accepted: consents.privacyPolicyAccepted,
+            privacy_policy_accepted_at: consents.privacyPolicyAcceptedAt || new Date().toISOString(),
+            consent_method: gdprCompliance?.consentMethod || 'explicit_checkbox',
+            ip_address: gdprCompliance?.ipAddress || 'unknown',
+            user_agent: gdprCompliance?.userAgent || 'unknown',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+        };
+
+        await db.query(
+            `INSERT INTO user_consents (
+                user_id, essential_data, performance_analysis, personalization, 
+                marketing_emails, analytics_cookies, terms_accepted, terms_accepted_at,
+                privacy_policy_accepted, privacy_policy_accepted_at, consent_method,
+                ip_address, user_agent, created_at, updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+            [
+                consentData.user_id, consentData.essential_data, consentData.performance_analysis,
+                consentData.personalization, consentData.marketing_emails, consentData.analytics_cookies,
+                consentData.terms_accepted, consentData.terms_accepted_at, consentData.privacy_policy_accepted,
+                consentData.privacy_policy_accepted_at, consentData.consent_method, consentData.ip_address,
+                consentData.user_agent, consentData.created_at, consentData.updated_at
+            ]
+        );
+
+        // Log de auditoria para compliance
+        console.log(`[LGPD] Nova conta criada - User ID: ${userId}, IP: ${gdprCompliance?.ipAddress}, Consentimentos: ${JSON.stringify(consents)}`);
+
+        res.status(201).json({ 
+            message: "Conta criada com sucesso conforme LGPD!", 
+            user: userResult.rows[0],
+            consents: {
+                essential: consentData.essential_data,
+                performance: consentData.performance_analysis,
+                personalization: consentData.personalization,
+                marketing: consentData.marketing_emails,
+                analytics: consentData.analytics_cookies
+            }
+        });
+
     } catch (err) {
         console.error("Erro no cadastro:", err);
         res.status(500).json({ message: 'Erro interno no servidor ao criar a conta.' });
     }
 });
+
+// ==================== ROTAS LGPD ====================
+
+// Obter consentimentos do usuário
+app.get('/user/consents', authenticateToken, async (req, res) => {
+  try {
+    const result = await db.query(
+      'SELECT * FROM user_consents WHERE user_id = $1',
+      [req.user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Consentimentos não encontrados'
+      });
+    }
+
+    const consents = result.rows[0];
+    
+    res.json({
+      success: true,
+      consents: {
+        essential_data: consents.essential_data,
+        performance_analysis: consents.performance_analysis,
+        personalization: consents.personalization,
+        marketing_emails: consents.marketing_emails,
+        analytics_cookies: consents.analytics_cookies,
+        terms_accepted: consents.terms_accepted,
+        privacy_policy_accepted: consents.privacy_policy_accepted,
+        last_updated: consents.updated_at
+      }
+    });
+
+  } catch (error) {
+    console.error('Erro ao obter consentimentos:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erro interno do servidor'
+    });
+  }
+});
+
+// Atualizar consentimentos do usuário
+app.put('/user/consents', authenticateToken, async (req, res) => {
+  const { consents } = req.body;
+
+  try {
+    // Atualizar consentimentos
+    await db.query(
+      `UPDATE user_consents SET 
+        performance_analysis = $1,
+        personalization = $2,
+        marketing_emails = $3,
+        analytics_cookies = $4,
+        updated_at = NOW()
+       WHERE user_id = $5`,
+      [
+        consents.performance || false,
+        consents.personalization || false,
+        consents.marketing || false,
+        consents.analytics || false,
+        req.user.id
+      ]
+    );
+
+    // Log da ação
+    await db.query(
+      `INSERT INTO data_access_logs (user_id, accessed_by_user_id, access_type, data_category, description, ip_address, user_agent, created_at)
+       VALUES ($1, $2, 'modify', 'consent_preferences', 'User updated consent preferences', $3, $4, NOW())`,
+      [req.user.id, req.user.id, req.ip, req.get('User-Agent')]
+    );
+
+    res.json({
+      success: true,
+      message: 'Consentimentos atualizados com sucesso!'
+    });
+
+  } catch (error) {
+    console.error('Erro ao atualizar consentimentos:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erro interno do servidor'
+    });
+  }
+});
+
+// Solicitar exportação de dados pessoais
+app.post('/user/export-data', authenticateToken, async (req, res) => {
+  try {
+    // Verificar se já existe uma solicitação pendente
+    const existingRequest = await db.query(
+      `SELECT * FROM data_requests 
+       WHERE user_id = $1 AND request_type = 'export' AND status IN ('pending', 'processing')`,
+      [req.user.id]
+    );
+
+    if (existingRequest.rows.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Já existe uma solicitação de exportação em andamento'
+      });
+    }
+
+    // Criar nova solicitação
+    const result = await db.query(
+      `INSERT INTO data_requests (user_id, request_type, request_details, ip_address, user_agent, requested_at)
+       VALUES ($1, 'export', 'Solicitação de exportação completa de dados pessoais', $2, $3, NOW())
+       RETURNING id`,
+      [req.user.id, req.ip, req.get('User-Agent')]
+    );
+
+    // Log da solicitação
+    await db.query(
+      `INSERT INTO data_access_logs (user_id, accessed_by_user_id, access_type, data_category, description, ip_address, user_agent, created_at)
+       VALUES ($1, $2, 'export', 'all_personal_data', 'User requested data export', $3, $4, NOW())`,
+      [req.user.id, req.user.id, req.ip, req.get('User-Agent')]
+    );
+
+    res.json({
+      success: true,
+      message: 'Solicitação de exportação criada com sucesso! Você receberá um email em até 72 horas.',
+      requestId: result.rows[0].id
+    });
+
+  } catch (error) {
+    console.error('Erro ao solicitar exportação:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erro interno do servidor'
+    });
+  }
+});
+
+// Solicitar exclusão de conta
+app.post('/user/delete-account', authenticateToken, async (req, res) => {
+  const { confirmation } = req.body;
+
+  try {
+    if (confirmation !== 'EXCLUIR MINHA CONTA') {
+      return res.status(400).json({
+        success: false,
+        message: 'Confirmação incorreta'
+      });
+    }
+
+    // Verificar se já existe uma solicitação pendente
+    const existingRequest = await db.query(
+      `SELECT * FROM data_requests 
+       WHERE user_id = $1 AND request_type = 'delete' AND status IN ('pending', 'processing')`,
+      [req.user.id]
+    );
+
+    if (existingRequest.rows.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Já existe uma solicitação de exclusão em andamento'
+      });
+    }
+
+    // Criar solicitação de exclusão
+    await db.query(
+      `INSERT INTO data_requests (user_id, request_type, request_details, ip_address, user_agent, requested_at)
+       VALUES ($1, 'delete', 'Solicitação de exclusão completa da conta e dados pessoais', $2, $3, NOW())`,
+      [req.user.id, req.ip, req.get('User-Agent')]
+    );
+
+    // Marcar conta para exclusão
+    await db.query(
+      `UPDATE users SET 
+        account_deletion_requested = TRUE,
+        account_deletion_scheduled = NOW() + INTERVAL '30 days'
+       WHERE id = $1`,
+      [req.user.id]
+    );
+
+    // Log da solicitação
+    await db.query(
+      `INSERT INTO data_access_logs (user_id, accessed_by_user_id, access_type, data_category, description, ip_address, user_agent, created_at)
+       VALUES ($1, $2, 'delete', 'all_personal_data', 'User requested account deletion', $3, $4, NOW())`,
+      [req.user.id, req.user.id, req.ip, req.get('User-Agent')]
+    );
+
+    res.json({
+      success: true,
+      message: 'Solicitação de exclusão registrada. Sua conta será excluída em 30 dias, conforme LGPD.'
+    });
+
+  } catch (error) {
+    console.error('Erro ao solicitar exclusão:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erro interno do servidor'
+    });
+  }
+});
+
+// Cancelar exclusão de conta (dentro do prazo de 30 dias)
+app.post('/user/cancel-deletion', authenticateToken, async (req, res) => {
+  try {
+    const result = await db.query(
+      `UPDATE users SET 
+        account_deletion_requested = FALSE,
+        account_deletion_scheduled = NULL
+       WHERE id = $1 AND account_deletion_requested = TRUE
+       RETURNING id`,
+      [req.user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Nenhuma solicitação de exclusão encontrada'
+      });
+    }
+
+    // Cancelar solicitação de exclusão
+    await db.query(
+      `UPDATE data_requests SET 
+        status = 'cancelled',
+        response_details = 'Exclusão cancelada pelo usuário',
+        processed_at = NOW()
+       WHERE user_id = $1 AND request_type = 'delete' AND status = 'pending'`,
+      [req.user.id]
+    );
+
+    // Log do cancelamento
+    await db.query(
+      `INSERT INTO data_access_logs (user_id, accessed_by_user_id, access_type, data_category, description, ip_address, user_agent, created_at)
+       VALUES ($1, $2, 'modify', 'account_settings', 'User cancelled account deletion', $3, $4, NOW())`,
+      [req.user.id, req.user.id, req.ip, req.get('User-Agent')]
+    );
+
+    res.json({
+      success: true,
+      message: 'Solicitação de exclusão cancelada com sucesso!'
+    });
+
+  } catch (error) {
+    console.error('Erro ao cancelar exclusão:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erro interno do servidor'
+    });
+  }
+});
+
+// Obter histórico de solicitações LGPD
+app.get('/user/data-requests', authenticateToken, async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT request_type, status, request_details, response_details, 
+              requested_at, processed_at, completed_at
+       FROM data_requests 
+       WHERE user_id = $1 
+       ORDER BY requested_at DESC`,
+      [req.user.id]
+    );
+
+    res.json({
+      success: true,
+      requests: result.rows
+    });
+
+  } catch (error) {
+    console.error('Erro ao obter solicitações:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erro interno do servidor'
+    });
+  }
+});
+
+// Rota para download de dados (quando disponível)
+app.get('/user/download-data/:requestId', authenticateToken, async (req, res) => {
+  const { requestId } = req.params;
+
+  try {
+    const result = await db.query(
+      `SELECT * FROM data_requests 
+       WHERE id = $1 AND user_id = $2 AND request_type = 'export' AND status = 'completed'`,
+      [requestId, req.user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Exportação não encontrada ou não disponível'
+      });
+    }
+
+    const request = result.rows[0];
+
+    // Verificar se ainda está dentro do prazo
+    if (request.export_expires_at && new Date() > new Date(request.export_expires_at)) {
+      return res.status(410).json({
+        success: false,
+        message: 'Link de download expirado'
+      });
+    }
+
+    // Log do download
+    await db.query(
+      `INSERT INTO data_access_logs (user_id, accessed_by_user_id, access_type, data_category, description, ip_address, user_agent, created_at)
+       VALUES ($1, $2, 'export', 'all_personal_data', 'User downloaded exported data', $3, $4, NOW())`,
+      [req.user.id, req.user.id, req.ip, req.get('User-Agent')]
+    );
+
+    // Em um ambiente real, você enviaria o arquivo aqui
+    res.json({
+      success: true,
+      message: 'Download iniciado',
+      downloadUrl: request.export_file_path || 'data-export.json'
+    });
+
+  } catch (error) {
+    console.error('Erro no download:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erro interno do servidor'
+    });
+  }
+});
+
+// ==================== FIM ROTAS LGPD ====================
 
 // ROTA DE LOGIN (ATUALIZADA)
 app.post('/login', async (req, res) => {
