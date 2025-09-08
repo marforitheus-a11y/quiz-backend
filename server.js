@@ -1037,163 +1037,57 @@ app.post('/admin/create-test-reports', authenticateToken, authorizeAdmin, async 
     }
 });
 
-// Admin: Dashboard Metrics
+// Admin: Test endpoint para debug
+app.get('/admin/dashboard/test', authenticateToken, authorizeAdmin, async (req, res) => {
+    res.json({ message: 'Endpoint de teste funcionando!', timestamp: new Date() });
+});
+
+// Admin: Dashboard Metrics (versão simplificada para debug)
 app.get('/admin/dashboard/metrics', authenticateToken, authorizeAdmin, async (req, res) => {
     try {
         console.log('[METRICS] Calculando métricas do dashboard...');
         
-        // Métricas básicas
+        // Métricas básicas simples
         const totalUsersResult = await db.query('SELECT COUNT(*) as count FROM users');
         const totalQuestionsResult = await db.query('SELECT COUNT(*) as count FROM questions');
         const totalCategoriesResult = await db.query('SELECT COUNT(*) as count FROM categories');
-        const totalThemesResult = await db.query('SELECT COUNT(*) as count FROM themes');
-        const totalReportsResult = await db.query('SELECT COUNT(*) as count FROM reports');
         
-        // Usuários ativos (últimos 30 dias)
-        const activeUsersResult = await db.query(`
-            SELECT COUNT(DISTINCT user_id) as count 
-            FROM quiz_sessions 
-            WHERE created_at > CURRENT_DATE - INTERVAL '30 days'
-        `);
-        
-        // Questões por nível de dificuldade
-        const questionsByDifficultyResult = await db.query(`
-            SELECT difficulty, COUNT(*) as count 
-            FROM questions 
-            GROUP BY difficulty 
-            ORDER BY difficulty
-        `);
-        
-        // Questões por categoria (top 10)
-        const questionsByCategoryResult = await db.query(`
-            SELECT c.name, COUNT(q.id) as count 
-            FROM categories c
-            LEFT JOIN questions q ON c.id = q.category_id
-            GROUP BY c.id, c.name
-            ORDER BY count DESC
-            LIMIT 10
-        `);
-        
-        // Sessões de quiz por dia (últimos 7 dias)
-        const sessionsPerDayResult = await db.query(`
-            SELECT 
-                DATE(created_at) as date,
-                COUNT(*) as count
-            FROM quiz_sessions 
-            WHERE created_at > CURRENT_DATE - INTERVAL '7 days'
-            GROUP BY DATE(created_at)
-            ORDER BY date DESC
-        `);
-        
-        // Relatórios pendentes por tipo
-        const reportsByStatusResult = await db.query(`
-            SELECT status, COUNT(*) as count 
-            FROM reports 
-            GROUP BY status 
-            ORDER BY status
-        `);
-        
-        // Top 5 usuários mais ativos
-        const topUsersResult = await db.query(`
-            SELECT 
-                u.username,
-                u.email,
-                COUNT(qs.id) as quiz_count,
-                MAX(qs.created_at) as last_activity
-            FROM users u
-            LEFT JOIN quiz_sessions qs ON u.id = qs.user_id
-            WHERE u.is_admin = false
-            GROUP BY u.id, u.username, u.email
-            ORDER BY quiz_count DESC, last_activity DESC
-            LIMIT 5
-        `);
-        
-        // Performance geral dos usuários
-        const performanceStats = await db.query(`
-            SELECT 
-                AVG(score) as avg_score,
-                MIN(score) as min_score,
-                MAX(score) as max_score,
-                COUNT(*) as total_sessions
-            FROM quiz_sessions 
-            WHERE score IS NOT NULL
-        `);
-        
-        // Questões com mais reportes
-        const mostReportedQuestionsResult = await db.query(`
-            SELECT 
-                q.id,
-                q.question,
-                COUNT(r.id) as report_count
-            FROM questions q
-            JOIN reports r ON q.id = r.question_id
-            GROUP BY q.id, q.question
-            ORDER BY report_count DESC
-            LIMIT 5
-        `);
-        
-        // Taxa de crescimento de usuários (últimos 30 dias vs 30 dias anteriores)
-        const growthRateResult = await db.query(`
-            SELECT 
-                COUNT(CASE WHEN created_at > CURRENT_DATE - INTERVAL '30 days' THEN 1 END) as new_users_last_30,
-                COUNT(CASE WHEN created_at BETWEEN CURRENT_DATE - INTERVAL '60 days' AND CURRENT_DATE - INTERVAL '30 days' THEN 1 END) as new_users_prev_30
-            FROM users
-        `);
-        
-        const growthRate = growthRateResult.rows[0];
-        const userGrowthRate = growthRate.new_users_prev_30 > 0 
-            ? ((growthRate.new_users_last_30 - growthRate.new_users_prev_30) / growthRate.new_users_prev_30 * 100).toFixed(2)
-            : growthRate.new_users_last_30 > 0 ? 100 : 0;
-        
-        // Compilar todas as métricas
+        // Dados mockados para testar
         const metrics = {
             overview: {
                 totalUsers: parseInt(totalUsersResult.rows[0].count),
                 totalQuestions: parseInt(totalQuestionsResult.rows[0].count),
                 totalCategories: parseInt(totalCategoriesResult.rows[0].count),
-                totalThemes: parseInt(totalThemesResult.rows[0].count),
-                totalReports: parseInt(totalReportsResult.rows[0].count),
-                activeUsers: parseInt(activeUsersResult.rows[0].count),
-                userGrowthRate: parseFloat(userGrowthRate)
+                totalThemes: 0,
+                totalReports: 0,
+                activeUsers: 0,
+                userGrowthRate: 0
             },
             questionStats: {
-                byDifficulty: questionsByDifficultyResult.rows.map(row => ({
-                    difficulty: row.difficulty || 'N/A',
-                    count: parseInt(row.count)
-                })),
-                byCategory: questionsByCategoryResult.rows.map(row => ({
-                    category: row.name,
-                    count: parseInt(row.count)
-                }))
+                byDifficulty: [
+                    { difficulty: 'easy', count: 10 },
+                    { difficulty: 'medium', count: 5 },
+                    { difficulty: 'hard', count: 2 }
+                ],
+                byCategory: [
+                    { category: 'Categoria 1', count: 8 },
+                    { category: 'Categoria 2', count: 5 },
+                    { category: 'Categoria 3', count: 4 }
+                ]
             },
             activity: {
-                sessionsPerDay: sessionsPerDayResult.rows.map(row => ({
-                    date: row.date,
-                    count: parseInt(row.count)
-                })),
-                topUsers: topUsersResult.rows.map(row => ({
-                    username: row.username,
-                    email: row.email,
-                    quizCount: parseInt(row.quiz_count || 0),
-                    lastActivity: row.last_activity
-                }))
+                sessionsPerDay: [],
+                topUsers: []
             },
             performance: {
-                avgScore: parseFloat(performanceStats.rows[0].avg_score || 0).toFixed(2),
-                minScore: parseFloat(performanceStats.rows[0].min_score || 0),
-                maxScore: parseFloat(performanceStats.rows[0].max_score || 0),
-                totalSessions: parseInt(performanceStats.rows[0].total_sessions || 0)
+                avgScore: 75.5,
+                minScore: 0,
+                maxScore: 100,
+                totalSessions: 0
             },
             reports: {
-                byStatus: reportsByStatusResult.rows.map(row => ({
-                    status: row.status,
-                    count: parseInt(row.count)
-                })),
-                mostReported: mostReportedQuestionsResult.rows.map(row => ({
-                    questionId: row.id,
-                    question: row.question.substring(0, 100) + (row.question.length > 100 ? '...' : ''),
-                    reportCount: parseInt(row.report_count)
-                }))
+                byStatus: [],
+                mostReported: []
             },
             lastUpdated: new Date().toISOString()
         };
