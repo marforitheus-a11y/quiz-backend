@@ -1664,6 +1664,55 @@ app.post('/public/fix-categories-emergency', async (req, res) => {
     }
 });
 
+// Endpoint público temporário para diagnóstico de categorias
+app.get('/public/diagnose-categories', async (req, res) => {
+    try {
+        console.log('[DIAGNOSE] Verificando estado das categorias...');
+        
+        // 1. Buscar todas as categorias
+        const allCategories = await db.query('SELECT id, name FROM categories ORDER BY name');
+        
+        // 2. Buscar distribuição de questões por categoria
+        const distribution = await db.query(`
+            SELECT 
+                c.id,
+                c.name, 
+                COUNT(q.id) as count 
+            FROM categories c
+            LEFT JOIN questions q ON c.id = q.category_id
+            GROUP BY c.id, c.name
+            ORDER BY count DESC
+        `);
+        
+        // 3. Buscar questões sem categoria
+        const withoutCategory = await db.query(`
+            SELECT COUNT(*) as count 
+            FROM questions 
+            WHERE category_id IS NULL
+        `);
+        
+        // 4. Total de questões
+        const totalQuestions = await db.query('SELECT COUNT(*) as count FROM questions');
+        
+        res.status(200).json({
+            message: 'Diagnóstico de categorias',
+            totalQuestions: parseInt(totalQuestions.rows[0].count),
+            questionsWithoutCategory: parseInt(withoutCategory.rows[0].count),
+            totalCategories: allCategories.rows.length,
+            categories: allCategories.rows,
+            distribution: distribution.rows.map(row => ({
+                id: row.id,
+                name: row.name,
+                count: parseInt(row.count)
+            }))
+        });
+        
+    } catch (err) {
+        console.error('[DIAGNOSE] Erro no diagnóstico:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Admin: Test endpoint para debug
 app.get('/admin/dashboard/test', authenticateToken, authorizeAdmin, async (req, res) => {
     console.log('[TEST] Endpoint de teste chamado');
