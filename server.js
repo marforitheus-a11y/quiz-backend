@@ -1066,10 +1066,21 @@ app.get('/admin/dashboard/simple', authenticateToken, authorizeAdmin, async (req
     }
 });
 
-// Admin: Dashboard Metrics (versão com dados reais)
+// Admin: Dashboard Metrics (versão com dados reais e verificação de colunas)
 app.get('/admin/dashboard/metrics', authenticateToken, authorizeAdmin, async (req, res) => {
     try {
         console.log('[METRICS] Calculando métricas do dashboard...');
+        
+        // Primeiro, vamos garantir que as colunas necessárias existem
+        try {
+            await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+            await db.query('ALTER TABLE questions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+            await db.query('ALTER TABLE categories ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+            await db.query('ALTER TABLE questions ADD COLUMN IF NOT EXISTS difficulty TEXT DEFAULT \'medium\'');
+            await db.query('ALTER TABLE questions ADD COLUMN IF NOT EXISTS category_id INTEGER');
+        } catch (columnErr) {
+            console.log('[METRICS] Aviso ao adicionar colunas:', columnErr.message);
+        }
         
         // Métricas básicas
         const totalUsersResult = await db.query('SELECT COUNT(*) as count FROM users');
@@ -1191,6 +1202,7 @@ app.get('/admin/dashboard/metrics', authenticateToken, authorizeAdmin, async (re
             totalSessions: 0
         };
         
+        // Verificar e buscar dados de usuários ativos (com fallback)
         try {
             // Tentar criar tabela quiz_sessions se não existir
             await db.query(`
@@ -1206,119 +1218,160 @@ app.get('/admin/dashboard/metrics', authenticateToken, authorizeAdmin, async (re
             
             console.log('[METRICS] Verificando quiz_sessions...');
             
-            // Usuários ativos (que fizeram quiz nos últimos 30 dias)
-            const activeUsersResult = await db.query(`
-                SELECT COUNT(DISTINCT user_id) as count 
-                FROM quiz_sessions 
-                WHERE created_at > CURRENT_DATE - INTERVAL '30 days'
-            `);
-            activeUsers = parseInt(activeUsersResult.rows[0].count);
+            // Usuários ativos (que fizeram quiz nos últimos 30 days)
+            try {
+                const activeUsersResult = await db.query(`
+                    SELECT COUNT(DISTINCT user_id) as count 
+                    FROM quiz_sessions 
+                    WHERE created_at > CURRENT_DATE - INTERVAL '30 days'
+                `);
+                activeUsers = parseInt(activeUsersResult.rows[0].count);
+            } catch (activeErr) {
+                console.log('[METRICS] Erro ao buscar usuários ativos de quiz_sessions:', activeErr.message);
+                activeUsers = 0;
+            }
             
             // Se não há dados em quiz_sessions, vamos usar dados dos usuários criados recentemente
             if (activeUsers === 0) {
                 console.log('[METRICS] Nenhuma sessão encontrada, usando usuários criados recentemente...');
-                const recentUsersResult = await db.query(`
-                    SELECT COUNT(*) as count 
-                    FROM users 
-                    WHERE created_at > CURRENT_DATE - INTERVAL '30 days'
-                    AND is_admin = false
+                try {
+                    const recentUsersResult = await db.query(`
+                        SELECT COUNT(*) as count 
+                        FROM users 
+                        WHERE created_at > CURRENT_DATE - INTERVAL '30 days'
+                        AND is_admin = false
+                    `);
+                    activeUsers = parseInt(recentUsersResult.rows[0].count);
+                } catch (recentErr) {
+                    console.log('[METRICS] Erro ao buscar usuários recentes:', recentErr.message);
+                    // Se falhar, usar total de usuários não-admin
+                    const totalUsersNonAdmin = await db.query(`
+                        SELECT COUNT(*) as count 
+                        FROM users 
+                        WHERE is_admin = false
+                    `);
+                    activeUsers = parseInt(totalUsersNonAdmin.rows[0].count);
+                }
+            }
+            
+            // Top usuários com sessões (com fallback)
+            try {
+                const topUsersResult = await db.query(`
+                    SELECT 
+                        u.username,
+                        u.email,
+                        COUNT(qs.id) as quiz_count,
+                        MAX(qs.created_at) as last_activity
+                    FROM users u
+                    LEFT JOIN quiz_sessions qs ON u.id = qs.user_id
+                    WHERE u.is_admin = false
+                    GROUP BY u.id, u.username, u.email
+                    ORDER BY quiz_count DESC, u.created_at DESC
+                    LIMIT 5
                 `);
-                activeUsers = parseInt(recentUsersResult.rows[0].count);
+                
+                topUsers = topUsersResult.rows.map(row => ({
+                    username: row.username,
+                    email: row.email,
+                    quizCount: parseInt(row.quiz_count || 0),
+                    lastActivity: row.last_activity
+                }));
+            } catch (topUsersErr) {
+                console.log('[METRICS] Erro ao buscar top usuários:', topUsersErr.message);
+                // Fallback: buscar usuários simples
+                try {
+                    const allUsersResult = await db.query(`
+                        SELECT 
+                            username,
+                            email,
+                            created_at
+                        FROM users 
+                        WHERE is_admin = false
+                        ORDER BY created_at DESC
+                        LIMIT 5
+                    `);
+                    
+                    topUsers = allUsersResult.rows.map(row => ({
+                        username: row.username,
+                        email: row.email,
+                        quizCount: 0,
+                        lastActivity: row.created_at || null
+                    }));
+                } catch (fallbackErr) {
+                    console.log('[METRICS] Erro no fallback de usuários:', fallbackErr.message);
+                    topUsers = [];
+                }
             }
             
-            // Top usuários com sessões
-            const topUsersResult = await db.query(`
-                SELECT 
-                    u.username,
-                    u.email,
-                    COUNT(qs.id) as quiz_count,
-                    MAX(qs.created_at) as last_activity
-                FROM users u
-                LEFT JOIN quiz_sessions qs ON u.id = qs.user_id
-                WHERE u.is_admin = false
-                GROUP BY u.id, u.username, u.email
-                ORDER BY quiz_count DESC, u.created_at DESC
-                LIMIT 5
-            `);
-            
-            topUsers = topUsersResult.rows.map(row => ({
-                username: row.username,
-                email: row.email,
-                quizCount: parseInt(row.quiz_count || 0),
-                lastActivity: row.last_activity
-            }));
-            
-            // Performance stats
-            const perfResult = await db.query(`
-                SELECT 
-                    AVG(score) as avg_score,
-                    MIN(score) as min_score,
-                    MAX(score) as max_score,
-                    COUNT(*) as total_sessions
-                FROM quiz_sessions 
-                WHERE score IS NOT NULL
-            `);
-            
-            if (perfResult.rows[0].total_sessions > 0) {
-                performanceStats = {
-                    avgScore: parseFloat(perfResult.rows[0].avg_score || 0).toFixed(2),
-                    minScore: parseFloat(perfResult.rows[0].min_score || 0),
-                    maxScore: parseFloat(perfResult.rows[0].max_score || 0),
-                    totalSessions: parseInt(perfResult.rows[0].total_sessions)
-                };
+            // Performance stats (com fallback)
+            try {
+                const perfResult = await db.query(`
+                    SELECT 
+                        AVG(score) as avg_score,
+                        MIN(score) as min_score,
+                        MAX(score) as max_score,
+                        COUNT(*) as total_sessions
+                    FROM quiz_sessions 
+                    WHERE score IS NOT NULL
+                `);
+                
+                if (perfResult.rows[0].total_sessions > 0) {
+                    performanceStats = {
+                        avgScore: parseFloat(perfResult.rows[0].avg_score || 0).toFixed(2),
+                        minScore: parseFloat(perfResult.rows[0].min_score || 0),
+                        maxScore: parseFloat(perfResult.rows[0].max_score || 0),
+                        totalSessions: parseInt(perfResult.rows[0].total_sessions)
+                    };
+                }
+            } catch (perfErr) {
+                console.log('[METRICS] Erro ao buscar estatísticas de performance:', perfErr.message);
             }
             
-            // Sessões por dia (últimos 7 dias)
-            const sessionsResult = await db.query(`
-                SELECT 
-                    DATE(created_at) as date,
-                    COUNT(*) as count
-                FROM quiz_sessions 
-                WHERE created_at > CURRENT_DATE - INTERVAL '7 days'
-                GROUP BY DATE(created_at)
-                ORDER BY date DESC
-            `);
-            
-            sessionsPerDay = sessionsResult.rows.map(row => ({
-                date: row.date,
-                count: parseInt(row.count)
-            }));
+            // Sessões por dia (últimos 7 dias) (com fallback)
+            try {
+                const sessionsResult = await db.query(`
+                    SELECT 
+                        DATE(created_at) as date,
+                        COUNT(*) as count
+                    FROM quiz_sessions 
+                    WHERE created_at > CURRENT_DATE - INTERVAL '7 days'
+                    GROUP BY DATE(created_at)
+                    ORDER BY date DESC
+                `);
+                
+                sessionsPerDay = sessionsResult.rows.map(row => ({
+                    date: row.date,
+                    count: parseInt(row.count)
+                }));
+            } catch (sessionsErr) {
+                console.log('[METRICS] Erro ao buscar sessões por dia:', sessionsErr.message);
+                sessionsPerDay = [];
+            }
             
         } catch (err) {
-            console.log('[METRICS] Erro com quiz_sessions:', err.message);
-            // Se não há tabela quiz_sessions, vamos mostrar dados básicos dos usuários
-            const allUsersResult = await db.query(`
-                SELECT 
-                    username,
-                    email,
-                    created_at
-                FROM users 
-                WHERE is_admin = false
-                ORDER BY created_at DESC
-                LIMIT 5
-            `);
-            
-            topUsers = allUsersResult.rows.map(row => ({
-                username: row.username,
-                email: row.email,
-                quizCount: 0,
-                lastActivity: row.created_at
-            }));
+            console.log('[METRICS] Erro geral com quiz_sessions:', err.message);
+            // Manter valores padrão já definidos
         }
         
-        // Taxa de crescimento de usuários
-        const growthResult = await db.query(`
-            SELECT 
-                COUNT(CASE WHEN created_at > CURRENT_DATE - INTERVAL '30 days' THEN 1 END) as new_users_last_30,
-                COUNT(CASE WHEN created_at BETWEEN CURRENT_DATE - INTERVAL '60 days' AND CURRENT_DATE - INTERVAL '30 days' THEN 1 END) as new_users_prev_30
-            FROM users
-            WHERE is_admin = false
-        `);
-        
-        const growth = growthResult.rows[0];
-        const userGrowthRate = growth.new_users_prev_30 > 0 
-            ? ((growth.new_users_last_30 - growth.new_users_prev_30) / growth.new_users_prev_30 * 100).toFixed(2)
-            : growth.new_users_last_30 > 0 ? 100 : 0;
+        // Taxa de crescimento de usuários (com fallback se created_at não existir)
+        let userGrowthRate = 0;
+        try {
+            const growthResult = await db.query(`
+                SELECT 
+                    COUNT(CASE WHEN created_at > CURRENT_DATE - INTERVAL '30 days' THEN 1 END) as new_users_last_30,
+                    COUNT(CASE WHEN created_at BETWEEN CURRENT_DATE - INTERVAL '60 days' AND CURRENT_DATE - INTERVAL '30 days' THEN 1 END) as new_users_prev_30
+                FROM users
+                WHERE is_admin = false
+            `);
+            
+            const growth = growthResult.rows[0];
+            userGrowthRate = growth.new_users_prev_30 > 0 
+                ? ((growth.new_users_last_30 - growth.new_users_prev_30) / growth.new_users_prev_30 * 100).toFixed(2)
+                : growth.new_users_last_30 > 0 ? 100 : 0;
+        } catch (growthErr) {
+            console.log('[METRICS] Erro ao calcular crescimento de usuários:', growthErr.message);
+            userGrowthRate = 0;
+        }
         
         // Compilar métricas reais
         const metrics = {
