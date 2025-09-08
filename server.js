@@ -205,49 +205,103 @@ async function generateQuestionsFromText(text, count) {
     try {
         console.log(`IA: Chamando API para gerar ${count} questões...`);
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
-        // default easy prompt
-        const prompt = `Baseado no texto a seguir, gere ${count} questões de concurso de múltipla escolha com 5 alternativas cada (A, B, C, D, E), com apenas uma correta. Responda APENAS com um JSON array válido no formato: [{"question": "...", "options": ["...", "..."], "answer": "..."}]. Texto: ${text.substring(0, 1000000)}`;
+        
+        // Prompt melhorado para evitar respostas malformadas
+        const prompt = `Você deve gerar exatamente ${count} questões de múltipla escolha baseadas no texto fornecido.
+
+FORMATO OBRIGATÓRIO - responda APENAS com um array JSON válido:
+[
+  {
+    "question": "Pergunta clara e objetiva aqui",
+    "options": ["A) Primeira opção", "B) Segunda opção", "C) Terceira opção", "D) Quarta opção", "E) Quinta opção"],
+    "answer": "A) Primeira opção"
+  }
+]
+
+REGRAS:
+- Cada questão deve ter exatamente 5 opções (A, B, C, D, E)
+- A resposta deve ser uma das opções exatas
+- NÃO adicione texto antes ou depois do JSON
+- NÃO use markdown ou formatação
+- NÃO explique as questões
+
+Texto base: ${text.substring(0, 50000)}`;
+
         const result = await model.generateContent(prompt);
-        const responseText = result.response.text();
-        console.log('Raw response from AI:', responseText.substring(0, 500));
+        const responseText = result.response.text().trim();
+        console.log('Raw response from AI:', responseText.substring(0, 300));
         
-        // Try multiple patterns to extract JSON
-        let jsonMatch = responseText.match(/(\[[\s\S]*\])/);
-        if (!jsonMatch) {
-            jsonMatch = responseText.match(/```json\s*(\[[\s\S]*\])\s*```/);
-        }
-        if (!jsonMatch) {
-            jsonMatch = responseText.match(/```\s*(\[[\s\S]*\])\s*```/);
+        // Limpar resposta e extrair JSON
+        let cleanResponse = responseText;
+        
+        // Remover markdown se presente
+        cleanResponse = cleanResponse.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+        
+        // Encontrar início e fim do array
+        const startIndex = cleanResponse.indexOf('[');
+        const lastIndex = cleanResponse.lastIndexOf(']');
+        
+        if (startIndex === -1 || lastIndex === -1) {
+            throw new Error('Resposta da IA não contém um array JSON válido');
         }
         
-        if (jsonMatch && jsonMatch[1]) {
-            try {
-                const cleanedJson = jsonMatch[1].trim();
-                return JSON.parse(cleanedJson);
-            } catch (parseError) {
-                console.error('JSON parse error:', parseError.message);
-                console.error('Problematic JSON:', jsonMatch[1].substring(0, 500));
-                throw new Error(`Erro ao fazer parse do JSON: ${parseError.message}`);
+        const jsonString = cleanResponse.substring(startIndex, lastIndex + 1);
+        
+        try {
+            const questions = JSON.parse(jsonString);
+            if (!Array.isArray(questions)) {
+                throw new Error('Resposta não é um array');
             }
+            
+            // Validar estrutura das questões
+            const validQuestions = questions.filter(q => 
+                q.question && q.options && Array.isArray(q.options) && q.answer
+            ).slice(0, count); // Limitar ao número solicitado
+            
+            console.log(`Successfully parsed ${validQuestions.length} questions`);
+            return validQuestions;
+            
+        } catch (parseError) {
+            console.error('JSON parse error:', parseError.message);
+            console.error('Problematic JSON:', jsonString.substring(0, 500));
+            throw new Error(`Erro ao fazer parse do JSON: ${parseError.message}`);
         }
         
-        throw new Error("Não foi possível encontrar um JSON válido na resposta da IA.");
     } catch (error) {
         console.error("Erro na geração de questões pela IA:", error);
-        throw new Error("A IA não conseguiu gerar as questões.");
+        throw new Error(`A IA não conseguiu gerar as questões: ${error.message}`);
     }
 }
 
 // Variantes de prompt por dificuldade
 function buildPromptForDifficulty(baseText, count, difficulty) {
-    const easy = `Gere ${count} questões de múltipla escolha fáceis (apenas uma correta). Use linguagem clara e enunciados diretos.`;
-    const medium = `Gere ${count} questões de dificuldade média. Itens devem incluir enunciados com contexto prático e alternativas que estejam próximas semanticamente da alternativa correta. Use formatos como:\nI. (Frase quase totalmente certa com item errado ao final)\nII. (Afirmação correta de acordo com o tema)\nIII. (Afirmação incorreta)\nVarie entre corretas e incorretas e inclua contextos do cotidiano que exijam interpretação.`;
-    const hard = `Gere ${count} questões de alta dificuldade. Construa enunciados que mudem pequenas palavras para induzir ao erro; evite perguntas do tipo "O que contém no artigo X" ou que peçam informação externa não contida no enunciado. Prefira questões que peçam: "Selecione a alternativa que contém um item correto (ou incorreto) conforme a lei Y" e ofereça alternativas muito próximas entre si.`;
     const base = String(baseText).slice(0, 60000);
-    let core = easy;
-    if (difficulty === 'medium') core = medium;
-    if (difficulty === 'hard') core = hard;
-    return `${core}\nContexto/Texto para referência: ${base}\nResponda apenas com um JSON array válido no formato [{"question":"...","options":["...","...","...","...","..."],"answer":"..."}].`;
+    
+    const difficultyInstructions = {
+        'easy': 'questões fáceis com linguagem clara e enunciados diretos',
+        'medium': 'questões de dificuldade média com contexto prático e alternativas próximas semanticamente',
+        'hard': 'questões de alta dificuldade com alternativas muito próximas entre si'
+    };
+    
+    return `Gere exatamente ${count} questões de múltipla escolha (${difficultyInstructions[difficulty] || difficultyInstructions.easy}).
+
+FORMATO OBRIGATÓRIO - responda APENAS com um array JSON válido:
+[
+  {
+    "question": "Pergunta baseada no contexto",
+    "options": ["A) Primeira opção", "B) Segunda opção", "C) Terceira opção", "D) Quarta opção", "E) Quinta opção"],
+    "answer": "A) Primeira opção"
+  }
+]
+
+REGRAS:
+- Dificuldade: ${difficulty}
+- Cada questão deve ter exatamente 5 opções (A, B, C, D, E)
+- A resposta deve ser uma das opções exatas
+- NÃO adicione texto antes ou depois do JSON
+- NÃO use markdown ou formatação
+
+Contexto/Texto para referência: ${base}`;
 }
 
 // Generate questions directly from a topic using the generative model (no web scraping)
@@ -255,35 +309,70 @@ async function generateQuestionsFromTopic(topic, count, difficulty = 'easy') {
     try {
         console.log(`IA: gerando ${count} questões diretamente a partir do tópico: ${topic}`);
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
-        const prompt = buildPromptForDifficulty(topic, count, difficulty);
+        
+        // Prompt melhorado e específico para tópicos
+        const prompt = `Gere exatamente ${count} questões de múltipla escolha sobre: ${topic}
+
+FORMATO OBRIGATÓRIO - responda APENAS com um array JSON válido:
+[
+  {
+    "question": "Pergunta clara sobre ${topic}",
+    "options": ["A) Primeira opção", "B) Segunda opção", "C) Terceira opção", "D) Quarta opção", "E) Quinta opção"],
+    "answer": "A) Primeira opção"
+  }
+]
+
+REGRAS:
+- Dificuldade: ${difficulty}
+- Cada questão deve ter exatamente 5 opções (A, B, C, D, E)
+- A resposta deve ser uma das opções exatas
+- NÃO adicione texto antes ou depois do JSON
+- NÃO use markdown ou formatação
+- Foque especificamente no tópico: ${topic}`;
+
         const result = await model.generateContent(prompt);
-        const responseText = result.response.text();
-        console.log('Raw response from topic generation:', responseText.substring(0, 500));
+        const responseText = result.response.text().trim();
+        console.log('Raw response from topic generation:', responseText.substring(0, 300));
         
-        // Try multiple patterns to extract JSON
-        let jsonMatch = responseText.match(/(\[[\s\S]*\])/);
-        if (!jsonMatch) {
-            jsonMatch = responseText.match(/```json\s*(\[[\s\S]*\])\s*```/);
-        }
-        if (!jsonMatch) {
-            jsonMatch = responseText.match(/```\s*(\[[\s\S]*\])\s*```/);
+        // Limpar resposta e extrair JSON
+        let cleanResponse = responseText;
+        
+        // Remover markdown se presente
+        cleanResponse = cleanResponse.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+        
+        // Encontrar início e fim do array
+        const startIndex = cleanResponse.indexOf('[');
+        const lastIndex = cleanResponse.lastIndexOf(']');
+        
+        if (startIndex === -1 || lastIndex === -1) {
+            throw new Error('Resposta da IA não contém um array JSON válido');
         }
         
-        if (jsonMatch && jsonMatch[1]) {
-            try {
-                const cleanedJson = jsonMatch[1].trim();
-                return JSON.parse(cleanedJson);
-            } catch (parseError) {
-                console.error('JSON parse error in topic generation:', parseError.message);
-                console.error('Problematic JSON:', jsonMatch[1].substring(0, 500));
-                throw new Error(`Erro ao fazer parse do JSON: ${parseError.message}`);
+        const jsonString = cleanResponse.substring(startIndex, lastIndex + 1);
+        
+        try {
+            const questions = JSON.parse(jsonString);
+            if (!Array.isArray(questions)) {
+                throw new Error('Resposta não é um array');
             }
+            
+            // Validar estrutura das questões
+            const validQuestions = questions.filter(q => 
+                q.question && q.options && Array.isArray(q.options) && q.answer
+            ).slice(0, count);
+            
+            console.log(`Successfully parsed ${validQuestions.length} topic questions`);
+            return validQuestions;
+            
+        } catch (parseError) {
+            console.error('JSON parse error in topic generation:', parseError.message);
+            console.error('Problematic JSON:', jsonString.substring(0, 500));
+            throw new Error(`Erro ao fazer parse do JSON: ${parseError.message}`);
         }
         
-        throw new Error('Não foi possível interpretar a resposta da IA como JSON válido.');
     } catch (err) {
         console.error('Erro generateQuestionsFromTopic:', err && err.message ? err.message : err);
-        throw new Error('A IA não conseguiu gerar questões a partir do tópico.');
+        throw new Error(`A IA não conseguiu gerar questões a partir do tópico: ${err.message}`);
     }
 }
 
@@ -875,6 +964,120 @@ app.post('/public/test-classification', async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Erro no teste básico',
+            error: error.message
+        });
+    }
+});
+
+// Endpoint simplificado e robusto para classificação
+app.post('/public/fix-categories-simple', async (req, res) => {
+    try {
+        console.log('Iniciando classificação simples...');
+        
+        // Buscar questões sem categoria em pequenos lotes
+        const batchSize = 50;
+        let totalReclassified = 0;
+        let processedBatches = 0;
+        
+        while (true) {
+            // Buscar próximo lote
+            const questionsResult = await pool.query(`
+                SELECT id, pergunta, opcoes 
+                FROM questions 
+                WHERE category_id = 11
+                LIMIT $1
+            `, [batchSize]);
+            
+            if (questionsResult.rows.length === 0) {
+                break; // Não há mais questões para processar
+            }
+            
+            console.log(`Processando lote ${processedBatches + 1} com ${questionsResult.rows.length} questões...`);
+            
+            for (const question of questionsResult.rows) {
+                try {
+                    let opcoes = question.opcoes;
+                    if (typeof opcoes === 'string') {
+                        try {
+                            opcoes = JSON.parse(opcoes);
+                        } catch (e) {
+                            opcoes = question.opcoes; // Manter como string se não for JSON válido
+                        }
+                    }
+                    
+                    const text = `${question.pergunta} ${JSON.stringify(opcoes)}`.toLowerCase();
+                    let newCategoryId = 11; // Default
+                    
+                    // Classificação simples e robusta
+                    if (text.includes('matemática') || text.includes('matemático') || 
+                        text.includes('número') || text.includes('cálculo')) {
+                        newCategoryId = 5; // Matemática
+                    }
+                    else if (text.includes('português') || text.includes('gramática') || 
+                             text.includes('ortografia') || text.includes('texto')) {
+                        newCategoryId = 6; // Português
+                    }
+                    else if (text.includes('trânsito') || text.includes('tráfego') || 
+                             text.includes('condutor') || text.includes('veículo')) {
+                        newCategoryId = 3; // Agente de trânsito
+                    }
+                    else if (text.includes('educação') || text.includes('professor') || 
+                             text.includes('ensino') || text.includes('escola')) {
+                        newCategoryId = 4; // Prof. Educação básica
+                    }
+                    else if (text.includes('diadema')) {
+                        newCategoryId = 7; // GCM - Diadema
+                    }
+                    else if (text.includes('hortolândia')) {
+                        newCategoryId = 8; // GCM - Hortolândia
+                    }
+                    
+                    // Atualizar se encontrou categoria
+                    if (newCategoryId !== 11) {
+                        await pool.query(
+                            'UPDATE questions SET category_id = $1 WHERE id = $2',
+                            [newCategoryId, question.id]
+                        );
+                        totalReclassified++;
+                    }
+                    
+                } catch (error) {
+                    console.error(`Erro ao processar questão ${question.id}:`, error.message);
+                }
+            }
+            
+            processedBatches++;
+            
+            // Pausa entre lotes para não sobrecarregar
+            if (processedBatches % 5 === 0) {
+                console.log(`Pausando após ${processedBatches} lotes...`);
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        }
+        
+        // Estatísticas finais
+        const finalStats = await pool.query(`
+            SELECT c.name as category, COUNT(q.id) as count
+            FROM categories c
+            LEFT JOIN questions q ON c.id = q.category_id
+            WHERE c.id IN (3,4,5,6,7,8,11)
+            GROUP BY c.id, c.name
+            ORDER BY count DESC
+        `);
+        
+        res.status(200).json({
+            success: true,
+            message: 'Classificação simples concluída!',
+            batchesProcessed: processedBatches,
+            reclassified: totalReclassified,
+            finalStats: finalStats.rows
+        });
+        
+    } catch (error) {
+        console.error('Erro na classificação simples:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Erro na classificação simples',
             error: error.message
         });
     }
