@@ -205,14 +205,32 @@ async function generateQuestionsFromText(text, count) {
     try {
         console.log(`IA: Chamando API para gerar ${count} questões...`);
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
-    // default easy prompt
-    const prompt = `Baseado no texto a seguir, gere ${count} questões de concurso de múltipla escolha com 5 alternativas cada (A, B, C, D, E), com apenas uma correta. Responda APENAS com um JSON array válido no formato: [{"question": "...", "options": ["...", "..."], "answer": "..."}]. Texto: ${text.substring(0, 1000000)}`;
+        // default easy prompt
+        const prompt = `Baseado no texto a seguir, gere ${count} questões de concurso de múltipla escolha com 5 alternativas cada (A, B, C, D, E), com apenas uma correta. Responda APENAS com um JSON array válido no formato: [{"question": "...", "options": ["...", "..."], "answer": "..."}]. Texto: ${text.substring(0, 1000000)}`;
         const result = await model.generateContent(prompt);
         const responseText = result.response.text();
-        const jsonMatch = responseText.match(/(\[[\s\S]*\])/);
-        if (jsonMatch && jsonMatch[0]) {
-            return JSON.parse(jsonMatch[0]);
+        console.log('Raw response from AI:', responseText.substring(0, 500));
+        
+        // Try multiple patterns to extract JSON
+        let jsonMatch = responseText.match(/(\[[\s\S]*\])/);
+        if (!jsonMatch) {
+            jsonMatch = responseText.match(/```json\s*(\[[\s\S]*\])\s*```/);
         }
+        if (!jsonMatch) {
+            jsonMatch = responseText.match(/```\s*(\[[\s\S]*\])\s*```/);
+        }
+        
+        if (jsonMatch && jsonMatch[1]) {
+            try {
+                const cleanedJson = jsonMatch[1].trim();
+                return JSON.parse(cleanedJson);
+            } catch (parseError) {
+                console.error('JSON parse error:', parseError.message);
+                console.error('Problematic JSON:', jsonMatch[1].substring(0, 500));
+                throw new Error(`Erro ao fazer parse do JSON: ${parseError.message}`);
+            }
+        }
+        
         throw new Error("Não foi possível encontrar um JSON válido na resposta da IA.");
     } catch (error) {
         console.error("Erro na geração de questões pela IA:", error);
@@ -237,11 +255,31 @@ async function generateQuestionsFromTopic(topic, count, difficulty = 'easy') {
     try {
         console.log(`IA: gerando ${count} questões diretamente a partir do tópico: ${topic}`);
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
-    const prompt = buildPromptForDifficulty(topic, count, difficulty);
+        const prompt = buildPromptForDifficulty(topic, count, difficulty);
         const result = await model.generateContent(prompt);
         const responseText = result.response.text();
-        const jsonMatch = responseText.match(/(\[[\s\S]*\])/);
-        if (jsonMatch && jsonMatch[0]) return JSON.parse(jsonMatch[0]);
+        console.log('Raw response from topic generation:', responseText.substring(0, 500));
+        
+        // Try multiple patterns to extract JSON
+        let jsonMatch = responseText.match(/(\[[\s\S]*\])/);
+        if (!jsonMatch) {
+            jsonMatch = responseText.match(/```json\s*(\[[\s\S]*\])\s*```/);
+        }
+        if (!jsonMatch) {
+            jsonMatch = responseText.match(/```\s*(\[[\s\S]*\])\s*```/);
+        }
+        
+        if (jsonMatch && jsonMatch[1]) {
+            try {
+                const cleanedJson = jsonMatch[1].trim();
+                return JSON.parse(cleanedJson);
+            } catch (parseError) {
+                console.error('JSON parse error in topic generation:', parseError.message);
+                console.error('Problematic JSON:', jsonMatch[1].substring(0, 500));
+                throw new Error(`Erro ao fazer parse do JSON: ${parseError.message}`);
+            }
+        }
+        
         throw new Error('Não foi possível interpretar a resposta da IA como JSON válido.');
     } catch (err) {
         console.error('Erro generateQuestionsFromTopic:', err && err.message ? err.message : err);
@@ -2915,9 +2953,30 @@ app.post('/admin/themes', authenticateToken, authorizeAdmin, upload.single('pdfF
                     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
                     const result = await model.generateContent(prompt);
                     const responseText = result.response.text();
-                    const jsonMatch = responseText.match(/(\[[\s\S]*\])/);
-                    if (jsonMatch && jsonMatch[0]) generatedQuestions = JSON.parse(jsonMatch[0]);
-                } catch (e) { console.warn('Difficulty-aware generation failed, using default generation', e && e.message ? e.message : e); }
+                    console.log('Raw response for difficulty generation:', responseText.substring(0, 500));
+                    
+                    // Try multiple patterns to extract JSON
+                    let jsonMatch = responseText.match(/(\[[\s\S]*\])/);
+                    if (!jsonMatch) {
+                        jsonMatch = responseText.match(/```json\s*(\[[\s\S]*\])\s*```/);
+                    }
+                    if (!jsonMatch) {
+                        jsonMatch = responseText.match(/```\s*(\[[\s\S]*\])\s*```/);
+                    }
+                    
+                    if (jsonMatch && jsonMatch[1]) {
+                        try {
+                            const cleanedJson = jsonMatch[1].trim();
+                            generatedQuestions = JSON.parse(cleanedJson);
+                            console.log('Successfully parsed difficulty-aware questions:', generatedQuestions.length);
+                        } catch (parseError) {
+                            console.warn('JSON parse error for difficulty generation:', parseError.message);
+                            console.warn('Problematic JSON:', jsonMatch[1].substring(0, 200));
+                        }
+                    }
+                } catch (e) { 
+                    console.warn('Difficulty-aware generation failed, using default generation:', e && e.message ? e.message : e); 
+                }
             }
         }
         // ensure themes table has category_id column (idempotent)
@@ -3015,10 +3074,29 @@ app.post('/admin/themes/:id/add', authenticateToken, authorizeAdmin, upload.sing
                     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
                     const result = await model.generateContent(prompt);
                     const responseText = result.response.text();
-                    const jsonMatch = responseText.match(/(\[[\s\S]*\])/);
-                    if (jsonMatch && jsonMatch[0]) generated = JSON.parse(jsonMatch[0]);
+                    console.log('Raw response for PDF difficulty generation:', responseText.substring(0, 500));
+                    
+                    // Try multiple patterns to extract JSON
+                    let jsonMatch = responseText.match(/(\[[\s\S]*\])/);
+                    if (!jsonMatch) {
+                        jsonMatch = responseText.match(/```json\s*(\[[\s\S]*\])\s*```/);
+                    }
+                    if (!jsonMatch) {
+                        jsonMatch = responseText.match(/```\s*(\[[\s\S]*\])\s*```/);
+                    }
+                    
+                    if (jsonMatch && jsonMatch[1]) {
+                        try {
+                            const cleanedJson = jsonMatch[1].trim();
+                            generated = JSON.parse(cleanedJson);
+                            console.log('Successfully parsed PDF difficulty-aware questions:', generated.length);
+                        } catch (parseError) {
+                            console.warn('JSON parse error for PDF difficulty generation:', parseError.message);
+                            console.warn('Problematic JSON:', jsonMatch[1].substring(0, 200));
+                        }
+                    }
                 } catch (e) {
-                    console.warn('Difficulty-specific generation fallback failed, using default generated set', e && e.message ? e.message : e);
+                    console.warn('Difficulty-specific generation fallback failed, using default generated set:', e && e.message ? e.message : e);
                 }
             }
         }
