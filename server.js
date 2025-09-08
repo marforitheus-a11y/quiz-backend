@@ -822,79 +822,94 @@ app.post('/public/final-classification', async (req, res) => {
     try {
         console.log('Iniciando classificação final de questões sem categoria...');
         
-        // Buscar todas as questões que estão como "Sem Categoria" (ID 11)
-        const questionsResult = await pool.query(`
-            SELECT id, pergunta, opcoes 
+        // Primeiro verificar quantas questões sem categoria existem
+        const countResult = await pool.query(`
+            SELECT COUNT(*) as count 
             FROM questions 
             WHERE category_id = 11
         `);
         
-        let reclassified = 0;
+        const semCategoriaCount = parseInt(countResult.rows[0].count);
+        console.log(`Encontradas ${semCategoriaCount} questões sem categoria`);
+        
+        if (semCategoriaCount === 0) {
+            return res.status(200).json({
+                success: true,
+                message: 'Nenhuma questão sem categoria encontrada',
+                totalProcessed: 0,
+                reclassified: 0
+            });
+        }
+        
+        // Buscar questões em lotes para evitar sobrecarga
+        const batchSize = 100;
+        let offset = 0;
+        let totalReclassified = 0;
         const reclassificationCounts = {};
         
-        for (const question of questionsResult.rows) {
-            const text = `${question.pergunta} ${JSON.stringify(question.opcoes)}`.toLowerCase();
+        while (offset < semCategoriaCount) {
+            console.log(`Processando lote ${offset}-${offset + batchSize}...`);
             
-            let newCategoryId = 11; // Default: manter como "Sem Categoria"
-            let categoryName = 'Sem Categoria';
+            const questionsResult = await pool.query(`
+                SELECT id, pergunta, opcoes 
+                FROM questions 
+                WHERE category_id = 11
+                LIMIT $1 OFFSET $2
+            `, [batchSize, offset]);
             
-            // Classificação por palavras-chave mais específicas
-            if (text.includes('matemática') || text.includes('matemático') || 
-                text.includes('número') || text.includes('soma') || text.includes('subtração') || 
-                text.includes('multiplicação') || text.includes('divisão') || text.includes('cálculo') ||
-                text.includes('equação') || text.includes('raiz') || text.includes('potência') ||
-                text.includes('fração') || text.includes('decimal') || text.includes('percentual') ||
-                text.includes('geometria') || text.includes('área') || text.includes('volume') ||
-                text.includes('perímetro') || text.includes('ângulo') || text.includes('triângulo') ||
-                text.includes('círculo') || text.includes('quadrado') || text.includes('retângulo')) {
-                newCategoryId = 5;
-                categoryName = 'Matemática';
-            }
-            else if (text.includes('português') || text.includes('gramática') || text.includes('ortografia') ||
-                     text.includes('sintaxe') || text.includes('semântica') || text.includes('fonética') ||
-                     text.includes('concordância') || text.includes('regência') || text.includes('crase') ||
-                     text.includes('acentuação') || text.includes('pontuação') || text.includes('literatura') ||
-                     text.includes('texto') || text.includes('interpretação') || text.includes('redação') ||
-                     text.includes('linguagem') || text.includes('comunicação') || text.includes('língua')) {
-                newCategoryId = 6;
-                categoryName = 'Portugues';
-            }
-            else if (text.includes('trânsito') || text.includes('tráfego') || text.includes('sinalização') ||
-                     text.includes('condutor') || text.includes('motorista') || text.includes('veículo') ||
-                     text.includes('placa') || text.includes('velocidade') || text.includes('faixa') ||
-                     text.includes('semáforo') || text.includes('estacionamento') || text.includes('multa') ||
-                     text.includes('infração') || text.includes('ctb') || text.includes('código de trânsito') ||
-                     text.includes('agente') && text.includes('trânsito')) {
-                newCategoryId = 3;
-                categoryName = 'Agente de transito';
-            }
-            else if (text.includes('educação') || text.includes('professor') || text.includes('ensino') ||
-                     text.includes('escola') || text.includes('aluno') || text.includes('pedagógico') ||
-                     text.includes('didática') || text.includes('currículo') || text.includes('aprendizagem') ||
-                     text.includes('metodologia') || text.includes('avaliação') || text.includes('ldb') ||
-                     text.includes('educacional') || text.includes('básica') && text.includes('educação')) {
-                newCategoryId = 4;
-                categoryName = 'Prof. Educação básica';
-            }
-            else if (text.includes('diadema') || text.includes('gcm') && text.includes('diadema')) {
-                newCategoryId = 7;
-                categoryName = 'GCM - Diadema';
-            }
-            else if (text.includes('hortolândia') || text.includes('gcm') && text.includes('hortolândia')) {
-                newCategoryId = 8;
-                categoryName = 'GCM - Hortolândia';
-            }
-            
-            // Se encontrou uma categoria específica, atualizar
-            if (newCategoryId !== 11) {
-                await pool.query(
-                    'UPDATE questions SET category_id = $1 WHERE id = $2',
-                    [newCategoryId, question.id]
-                );
+            for (const question of questionsResult.rows) {
+                const text = `${question.pergunta} ${JSON.stringify(question.opcoes)}`.toLowerCase();
                 
-                reclassified++;
-                reclassificationCounts[categoryName] = (reclassificationCounts[categoryName] || 0) + 1;
+                let newCategoryId = 11; // Default: manter como "Sem Categoria"
+                let categoryName = 'Sem Categoria';
+                
+                // Classificação por palavras-chave
+                if (text.includes('matemática') || text.includes('matemático') || 
+                    text.includes('número') || text.includes('soma') || text.includes('subtração') || 
+                    text.includes('multiplicação') || text.includes('divisão') || text.includes('cálculo')) {
+                    newCategoryId = 5;
+                    categoryName = 'Matemática';
+                }
+                else if (text.includes('português') || text.includes('gramática') || text.includes('ortografia') ||
+                         text.includes('sintaxe') || text.includes('concordância') || text.includes('literatura') ||
+                         text.includes('texto') || text.includes('interpretação') || text.includes('língua')) {
+                    newCategoryId = 6;
+                    categoryName = 'Portugues';
+                }
+                else if (text.includes('trânsito') || text.includes('tráfego') || text.includes('sinalização') ||
+                         text.includes('condutor') || text.includes('motorista') || text.includes('veículo') ||
+                         text.includes('placa') || text.includes('velocidade') || text.includes('agente')) {
+                    newCategoryId = 3;
+                    categoryName = 'Agente de transito';
+                }
+                else if (text.includes('educação') || text.includes('professor') || text.includes('ensino') ||
+                         text.includes('escola') || text.includes('aluno') || text.includes('pedagógico') ||
+                         text.includes('didática') || text.includes('aprendizagem') || text.includes('básica')) {
+                    newCategoryId = 4;
+                    categoryName = 'Prof. Educação básica';
+                }
+                else if (text.includes('diadema') || (text.includes('gcm') && text.includes('diadema'))) {
+                    newCategoryId = 7;
+                    categoryName = 'GCM - Diadema';
+                }
+                else if (text.includes('hortolândia') || (text.includes('gcm') && text.includes('hortolândia'))) {
+                    newCategoryId = 8;
+                    categoryName = 'GCM - Hortolândia';
+                }
+                
+                // Se encontrou uma categoria específica, atualizar
+                if (newCategoryId !== 11) {
+                    await pool.query(
+                        'UPDATE questions SET category_id = $1 WHERE id = $2',
+                        [newCategoryId, question.id]
+                    );
+                    
+                    totalReclassified++;
+                    reclassificationCounts[categoryName] = (reclassificationCounts[categoryName] || 0) + 1;
+                }
             }
+            
+            offset += batchSize;
         }
         
         // Estatísticas finais
@@ -911,9 +926,9 @@ app.post('/public/final-classification', async (req, res) => {
         res.status(200).json({
             success: true,
             message: 'Classificação final concluída!',
-            totalProcessed: questionsResult.rows.length,
-            reclassified: reclassified,
-            remainingWithoutCategory: questionsResult.rows.length - reclassified,
+            totalProcessed: semCategoriaCount,
+            reclassified: totalReclassified,
+            remainingWithoutCategory: semCategoriaCount - totalReclassified,
             reclassificationCounts: reclassificationCounts,
             finalStats: finalStats
         });
