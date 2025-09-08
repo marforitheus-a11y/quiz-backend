@@ -3354,7 +3354,7 @@ app.post('/admin/themes', authenticateToken, authorizeAdmin, upload.single('pdfF
             } catch (e) {}
             await db.query(
                 'INSERT INTO questions (theme_id, question, options, answer, difficulty, category_id) VALUES ($1, $2, $3, $4, $5, $6)',
-                [newThemeId, q.question, JSON.stringify(q.options), resolveAnswerText(q), difficulty, categoryId || null]
+                [newThemeId, q.question, q.options, resolveAnswerText(q), difficulty, categoryId || null]
             );
         }
         res.status(201).json({ message: `Tema '${themeName}' e ${generatedQuestions.length} questões foram adicionadas.` });
@@ -3477,7 +3477,7 @@ app.post('/admin/themes/:id/add', authenticateToken, authorizeAdmin, upload.sing
             const themeCategoryId = categoryId || null;
             
             await db.query('INSERT INTO questions (theme_id, question, options, answer, difficulty, category_id) VALUES ($1,$2,$3,$4,$5,$6)', 
-                [themeId, q.question, JSON.stringify(q.options), resolveAnswerText(q), difficulty, themeCategoryId]);
+                [themeId, q.question, q.options, resolveAnswerText(q), difficulty, themeCategoryId]);
         }
         res.status(201).json({ message: `Adicionadas ${generated.length} questões ao tema ${themeId}.` });
     } catch (err) {
@@ -3512,7 +3512,7 @@ app.post('/admin/themes/:id/reset', authenticateToken, authorizeAdmin, upload.si
             } catch (e) {}
             await db.query(
                 'INSERT INTO questions (theme_id, question, options, answer, category_id) VALUES ($1, $2, $3, $4, $5)',
-                [id, q.question, JSON.stringify(q.options), resolveAnswerText(q), themeCategoryId]
+                [id, q.question, q.options, resolveAnswerText(q), themeCategoryId]
             );
         }
         res.status(200).json({ message: `Tema resetado com ${newQuestions.length} novas questões.` });
