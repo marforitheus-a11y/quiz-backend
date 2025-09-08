@@ -37,6 +37,79 @@ if (!JWT_SECRET) {
     process.exit(1);
 }
 
+// --- MIGRAÇÃO LGPD AUTOMÁTICA ---
+async function ensureLgpdCompliance() {
+    try {
+        console.log('🔍 Verificando compliance LGPD...');
+        
+        // Verificar se colunas LGPD existem
+        const checkQuery = `
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'users' 
+            AND column_name = 'gdpr_consent_date'
+        `;
+        
+        const result = await db.query(checkQuery);
+        
+        if (result.rows.length === 0) {
+            console.log('⚙️ Aplicando migração LGPD...');
+            
+            const lgpdMigration = `
+                -- Adicionar campos LGPD na tabela users
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS gdpr_consent_date TIMESTAMP;
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS gdpr_ip_address VARCHAR(45);
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS gdpr_user_agent TEXT;
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS data_retention_until TIMESTAMP;
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS account_deletion_requested BOOLEAN DEFAULT FALSE;
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS account_deletion_scheduled TIMESTAMP;
+
+                -- Criar tabela de consentimentos
+                CREATE TABLE IF NOT EXISTS user_consents (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                    essential_data BOOLEAN NOT NULL DEFAULT TRUE,
+                    performance_analysis BOOLEAN DEFAULT FALSE,
+                    personalization BOOLEAN DEFAULT FALSE,
+                    marketing_emails BOOLEAN DEFAULT FALSE,
+                    analytics_cookies BOOLEAN DEFAULT FALSE,
+                    terms_accepted BOOLEAN NOT NULL DEFAULT FALSE,
+                    terms_accepted_at TIMESTAMP,
+                    terms_version VARCHAR(50) DEFAULT '1.0',
+                    privacy_policy_accepted BOOLEAN NOT NULL DEFAULT FALSE,
+                    privacy_policy_accepted_at TIMESTAMP,
+                    privacy_policy_version VARCHAR(50) DEFAULT '1.0',
+                    consent_method VARCHAR(100) DEFAULT 'explicit_checkbox',
+                    ip_address VARCHAR(45),
+                    user_agent TEXT,
+                    geolocation VARCHAR(100),
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    updated_at TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(user_id)
+                );
+
+                -- Atualizar usuários existentes
+                UPDATE users 
+                SET gdpr_consent_date = COALESCE(gdpr_consent_date, created_at),
+                    gdpr_ip_address = COALESCE(gdpr_ip_address, 'migrated'),
+                    gdpr_user_agent = COALESCE(gdpr_user_agent, 'migration-script')
+                WHERE gdpr_consent_date IS NULL;
+            `;
+            
+            await db.query(lgpdMigration);
+            console.log('✅ Migração LGPD aplicada com sucesso!');
+        } else {
+            console.log('✅ LGPD compliance já configurado');
+        }
+    } catch (error) {
+        console.error('❌ Erro na migração LGPD:', error);
+        // Não parar o servidor por causa da migração
+    }
+}
+
+// Executar migração na inicialização
+ensureLgpdCompliance();
+
 // --- 3. CONFIGURAÇÃO DO MULTER (UPLOAD DE ARQUIVOS) ---
 const { v4: uuidv4 } = require('uuid');
 
