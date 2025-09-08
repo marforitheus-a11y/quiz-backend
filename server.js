@@ -2159,10 +2159,33 @@ app.post('/public/fix-real-categories', async (req, res) => {
             // Matemática (ID 5)
             if (!classified && (
                 fullText.includes('matemática') || 
+                fullText.includes('matematica') ||
                 fullText.includes('número') || 
+                fullText.includes('numero') ||
                 fullText.includes('cálculo') ||
+                fullText.includes('calculo') ||
                 fullText.includes('equação') ||
+                fullText.includes('equacao') ||
+                fullText.includes('função') ||
+                fullText.includes('funcao') ||
+                fullText.includes('geometria') ||
+                fullText.includes('álgebra') ||
+                fullText.includes('algebra') ||
+                fullText.includes('aritmética') ||
+                fullText.includes('aritmetica') ||
+                fullText.includes('estatística') ||
+                fullText.includes('estatistica') ||
+                fullText.includes('trigonometria') ||
+                fullText.includes('raiz') ||
+                fullText.includes('quadrado') ||
                 fullText.includes('soma') ||
+                fullText.includes('multiplicação') ||
+                fullText.includes('multiplicacao') ||
+                fullText.includes('divisão') ||
+                fullText.includes('divisao') ||
+                fullText.includes('fração') ||
+                fullText.includes('fracao') ||
+                fullText.includes('decimal') ||
                 fullText.includes('subtração') ||
                 /\d+\s*[\+\-\*\/]\s*\d+/.test(fullText) ||
                 /x\s*[\+\-\*\/=]\s*\d+/.test(fullText)
@@ -2177,11 +2200,29 @@ app.post('/public/fix-real-categories', async (req, res) => {
             if (!classified && (
                 fullText.includes('português') || 
                 fullText.includes('portugues') ||
-                fullText.includes('gramática') || 
+                fullText.includes('gramática') ||
+                fullText.includes('gramatica') || 
                 fullText.includes('ortografia') ||
                 fullText.includes('literatura') ||
                 fullText.includes('texto') ||
+                fullText.includes('redação') ||
+                fullText.includes('redacao') ||
+                fullText.includes('sintaxe') ||
+                fullText.includes('semântica') ||
+                fullText.includes('semantica') ||
+                fullText.includes('fonética') ||
+                fullText.includes('fonetica') ||
+                fullText.includes('concordância') ||
+                fullText.includes('concordancia') ||
+                fullText.includes('verbal') ||
+                fullText.includes('nominal') ||
+                fullText.includes('acentuação') ||
+                fullText.includes('acentuacao') ||
+                fullText.includes('crase') ||
+                fullText.includes('pontuação') ||
+                fullText.includes('pontuacao') ||
                 fullText.includes('interpretação') ||
+                fullText.includes('interpretacao') ||
                 fullText.includes('verbo') ||
                 fullText.includes('substantivo')
             )) {
@@ -2198,8 +2239,27 @@ app.post('/public/fix-real-categories', async (req, res) => {
                 fullText.includes('agente') ||
                 fullText.includes('ctb') ||
                 fullText.includes('código de trânsito') ||
+                fullText.includes('codigo de transito') ||
                 fullText.includes('velocidade máxima') ||
-                fullText.includes('sinalização')
+                fullText.includes('velocidade maxima') ||
+                fullText.includes('sinalização') ||
+                fullText.includes('sinalizacao') ||
+                fullText.includes('multa') ||
+                fullText.includes('veículo') ||
+                fullText.includes('veiculo') ||
+                fullText.includes('condutor') ||
+                fullText.includes('habilitação') ||
+                fullText.includes('habilitacao') ||
+                fullText.includes('cnh') ||
+                fullText.includes('via') ||
+                fullText.includes('estrada') ||
+                fullText.includes('semáforo') ||
+                fullText.includes('semaforo') ||
+                fullText.includes('faixa') ||
+                fullText.includes('pedestre') ||
+                fullText.includes('placa') ||
+                fullText.includes('infração') ||
+                fullText.includes('infracao')
             )) {
                 await db.query('UPDATE questions SET category_id = 3 WHERE id = $1', [question.id]);
                 reclassified++;
@@ -2210,11 +2270,25 @@ app.post('/public/fix-real-categories', async (req, res) => {
             // Prof. Educação básica (ID 4)
             if (!classified && (
                 fullText.includes('educação') ||
+                fullText.includes('educacao') ||
                 fullText.includes('professor') ||
                 fullText.includes('ensino') ||
                 fullText.includes('pedagog') ||
                 fullText.includes('didática') ||
-                fullText.includes('currículo')
+                fullText.includes('didatica') ||
+                fullText.includes('currículo') ||
+                fullText.includes('curriculo') ||
+                fullText.includes('escola') ||
+                fullText.includes('aluno') ||
+                fullText.includes('avaliação') ||
+                fullText.includes('avaliacao') ||
+                fullText.includes('metodologia') ||
+                fullText.includes('sala de aula') ||
+                fullText.includes('formação') ||
+                fullText.includes('formacao') ||
+                fullText.includes('básica') ||
+                fullText.includes('basica') ||
+                fullText.includes('fundamental')
             )) {
                 await db.query('UPDATE questions SET category_id = 4 WHERE id = $1', [question.id]);
                 reclassified++;
