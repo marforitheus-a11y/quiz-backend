@@ -1042,57 +1042,297 @@ app.get('/admin/dashboard/test', authenticateToken, authorizeAdmin, async (req, 
     res.json({ message: 'Endpoint de teste funcionando!', timestamp: new Date() });
 });
 
-// Admin: Dashboard Metrics (versão simplificada para debug)
+// Admin: Dashboard Metrics (versão com dados reais)
 app.get('/admin/dashboard/metrics', authenticateToken, authorizeAdmin, async (req, res) => {
     try {
         console.log('[METRICS] Calculando métricas do dashboard...');
         
-        // Métricas básicas simples
+        // Métricas básicas
         const totalUsersResult = await db.query('SELECT COUNT(*) as count FROM users');
         const totalQuestionsResult = await db.query('SELECT COUNT(*) as count FROM questions');
         const totalCategoriesResult = await db.query('SELECT COUNT(*) as count FROM categories');
         
-        // Dados mockados para testar
+        console.log('[METRICS] Usuários:', totalUsersResult.rows[0].count);
+        console.log('[METRICS] Questões:', totalQuestionsResult.rows[0].count);
+        console.log('[METRICS] Categorias:', totalCategoriesResult.rows[0].count);
+        
+        // Verificar e contar themes
+        let totalThemes = 0;
+        try {
+            const themesResult = await db.query('SELECT COUNT(*) as count FROM themes');
+            totalThemes = parseInt(themesResult.rows[0].count);
+        } catch (err) {
+            console.log('[METRICS] Tabela themes não existe:', err.message);
+        }
+        
+        // Verificar e contar reports
+        let totalReports = 0;
+        let reportsByStatus = [];
+        let mostReported = [];
+        try {
+            // Tentar criar tabela reports se não existir
+            await db.query(`
+                CREATE TABLE IF NOT EXISTS reports (
+                    id SERIAL PRIMARY KEY,
+                    question_id INTEGER REFERENCES questions(id) ON DELETE CASCADE,
+                    user_id INTEGER,
+                    reason TEXT,
+                    description TEXT,
+                    status TEXT DEFAULT 'pending',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            `);
+            
+            const reportsResult = await db.query('SELECT COUNT(*) as count FROM reports');
+            totalReports = parseInt(reportsResult.rows[0].count);
+            
+            // Reports por status
+            const statusResult = await db.query(`
+                SELECT status, COUNT(*) as count 
+                FROM reports 
+                GROUP BY status 
+                ORDER BY status
+            `);
+            reportsByStatus = statusResult.rows.map(row => ({
+                status: row.status,
+                count: parseInt(row.count)
+            }));
+            
+            // Questões mais reportadas
+            if (totalReports > 0) {
+                const reportedResult = await db.query(`
+                    SELECT 
+                        q.id,
+                        q.question,
+                        COUNT(r.id) as report_count
+                    FROM questions q
+                    JOIN reports r ON q.id = r.question_id
+                    GROUP BY q.id, q.question
+                    ORDER BY report_count DESC
+                    LIMIT 5
+                `);
+                mostReported = reportedResult.rows.map(row => ({
+                    questionId: row.id,
+                    question: row.question.substring(0, 100) + (row.question.length > 100 ? '...' : ''),
+                    reportCount: parseInt(row.report_count)
+                }));
+            }
+        } catch (err) {
+            console.log('[METRICS] Erro com reports:', err.message);
+        }
+        
+        // Questões por dificuldade (dados reais)
+        console.log('[METRICS] Buscando questões por dificuldade...');
+        const difficultyResult = await db.query(`
+            SELECT 
+                COALESCE(difficulty, 'N/A') as difficulty, 
+                COUNT(*) as count 
+            FROM questions 
+            GROUP BY difficulty 
+            ORDER BY 
+                CASE difficulty 
+                    WHEN 'easy' THEN 1 
+                    WHEN 'medium' THEN 2 
+                    WHEN 'hard' THEN 3 
+                    ELSE 4 
+                END
+        `);
+        
+        console.log('[METRICS] Questões por dificuldade:', difficultyResult.rows);
+        
+        // Questões por categoria (dados reais - top 10)
+        console.log('[METRICS] Buscando questões por categoria...');
+        const categoryResult = await db.query(`
+            SELECT 
+                c.name, 
+                COUNT(q.id) as count 
+            FROM categories c
+            LEFT JOIN questions q ON c.id = q.category_id
+            GROUP BY c.id, c.name
+            HAVING COUNT(q.id) > 0
+            ORDER BY count DESC
+            LIMIT 10
+        `);
+        
+        console.log('[METRICS] Questões por categoria:', categoryResult.rows);
+        
+        // Verificar se quiz_sessions existe e buscar dados de usuários ativos
+        let activeUsers = 0;
+        let sessionsPerDay = [];
+        let topUsers = [];
+        let performanceStats = {
+            avgScore: 0,
+            minScore: 0,
+            maxScore: 0,
+            totalSessions: 0
+        };
+        
+        try {
+            // Tentar criar tabela quiz_sessions se não existir
+            await db.query(`
+                CREATE TABLE IF NOT EXISTS quiz_sessions (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER REFERENCES users(id),
+                    score DECIMAL(5,2),
+                    questions_answered INTEGER DEFAULT 0,
+                    correct_answers INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            `);
+            
+            console.log('[METRICS] Verificando quiz_sessions...');
+            
+            // Usuários ativos (que fizeram quiz nos últimos 30 dias)
+            const activeUsersResult = await db.query(`
+                SELECT COUNT(DISTINCT user_id) as count 
+                FROM quiz_sessions 
+                WHERE created_at > CURRENT_DATE - INTERVAL '30 days'
+            `);
+            activeUsers = parseInt(activeUsersResult.rows[0].count);
+            
+            // Se não há dados em quiz_sessions, vamos usar dados dos usuários criados recentemente
+            if (activeUsers === 0) {
+                console.log('[METRICS] Nenhuma sessão encontrada, usando usuários criados recentemente...');
+                const recentUsersResult = await db.query(`
+                    SELECT COUNT(*) as count 
+                    FROM users 
+                    WHERE created_at > CURRENT_DATE - INTERVAL '30 days'
+                    AND is_admin = false
+                `);
+                activeUsers = parseInt(recentUsersResult.rows[0].count);
+            }
+            
+            // Top usuários com sessões
+            const topUsersResult = await db.query(`
+                SELECT 
+                    u.username,
+                    u.email,
+                    COUNT(qs.id) as quiz_count,
+                    MAX(qs.created_at) as last_activity
+                FROM users u
+                LEFT JOIN quiz_sessions qs ON u.id = qs.user_id
+                WHERE u.is_admin = false
+                GROUP BY u.id, u.username, u.email
+                ORDER BY quiz_count DESC, u.created_at DESC
+                LIMIT 5
+            `);
+            
+            topUsers = topUsersResult.rows.map(row => ({
+                username: row.username,
+                email: row.email,
+                quizCount: parseInt(row.quiz_count || 0),
+                lastActivity: row.last_activity
+            }));
+            
+            // Performance stats
+            const perfResult = await db.query(`
+                SELECT 
+                    AVG(score) as avg_score,
+                    MIN(score) as min_score,
+                    MAX(score) as max_score,
+                    COUNT(*) as total_sessions
+                FROM quiz_sessions 
+                WHERE score IS NOT NULL
+            `);
+            
+            if (perfResult.rows[0].total_sessions > 0) {
+                performanceStats = {
+                    avgScore: parseFloat(perfResult.rows[0].avg_score || 0).toFixed(2),
+                    minScore: parseFloat(perfResult.rows[0].min_score || 0),
+                    maxScore: parseFloat(perfResult.rows[0].max_score || 0),
+                    totalSessions: parseInt(perfResult.rows[0].total_sessions)
+                };
+            }
+            
+            // Sessões por dia (últimos 7 dias)
+            const sessionsResult = await db.query(`
+                SELECT 
+                    DATE(created_at) as date,
+                    COUNT(*) as count
+                FROM quiz_sessions 
+                WHERE created_at > CURRENT_DATE - INTERVAL '7 days'
+                GROUP BY DATE(created_at)
+                ORDER BY date DESC
+            `);
+            
+            sessionsPerDay = sessionsResult.rows.map(row => ({
+                date: row.date,
+                count: parseInt(row.count)
+            }));
+            
+        } catch (err) {
+            console.log('[METRICS] Erro com quiz_sessions:', err.message);
+            // Se não há tabela quiz_sessions, vamos mostrar dados básicos dos usuários
+            const allUsersResult = await db.query(`
+                SELECT 
+                    username,
+                    email,
+                    created_at
+                FROM users 
+                WHERE is_admin = false
+                ORDER BY created_at DESC
+                LIMIT 5
+            `);
+            
+            topUsers = allUsersResult.rows.map(row => ({
+                username: row.username,
+                email: row.email,
+                quizCount: 0,
+                lastActivity: row.created_at
+            }));
+        }
+        
+        // Taxa de crescimento de usuários
+        const growthResult = await db.query(`
+            SELECT 
+                COUNT(CASE WHEN created_at > CURRENT_DATE - INTERVAL '30 days' THEN 1 END) as new_users_last_30,
+                COUNT(CASE WHEN created_at BETWEEN CURRENT_DATE - INTERVAL '60 days' AND CURRENT_DATE - INTERVAL '30 days' THEN 1 END) as new_users_prev_30
+            FROM users
+            WHERE is_admin = false
+        `);
+        
+        const growth = growthResult.rows[0];
+        const userGrowthRate = growth.new_users_prev_30 > 0 
+            ? ((growth.new_users_last_30 - growth.new_users_prev_30) / growth.new_users_prev_30 * 100).toFixed(2)
+            : growth.new_users_last_30 > 0 ? 100 : 0;
+        
+        // Compilar métricas reais
         const metrics = {
             overview: {
                 totalUsers: parseInt(totalUsersResult.rows[0].count),
                 totalQuestions: parseInt(totalQuestionsResult.rows[0].count),
                 totalCategories: parseInt(totalCategoriesResult.rows[0].count),
-                totalThemes: 0,
-                totalReports: 0,
-                activeUsers: 0,
-                userGrowthRate: 0
+                totalThemes: totalThemes,
+                totalReports: totalReports,
+                activeUsers: activeUsers,
+                userGrowthRate: parseFloat(userGrowthRate)
             },
             questionStats: {
-                byDifficulty: [
-                    { difficulty: 'easy', count: 10 },
-                    { difficulty: 'medium', count: 5 },
-                    { difficulty: 'hard', count: 2 }
-                ],
-                byCategory: [
-                    { category: 'Categoria 1', count: 8 },
-                    { category: 'Categoria 2', count: 5 },
-                    { category: 'Categoria 3', count: 4 }
-                ]
+                byDifficulty: difficultyResult.rows.map(row => ({
+                    difficulty: row.difficulty || 'N/A',
+                    count: parseInt(row.count)
+                })),
+                byCategory: categoryResult.rows.map(row => ({
+                    category: row.name,
+                    count: parseInt(row.count)
+                }))
             },
             activity: {
-                sessionsPerDay: [],
-                topUsers: []
+                sessionsPerDay: sessionsPerDay,
+                topUsers: topUsers
             },
-            performance: {
-                avgScore: 75.5,
-                minScore: 0,
-                maxScore: 100,
-                totalSessions: 0
-            },
+            performance: performanceStats,
             reports: {
-                byStatus: [],
-                mostReported: []
+                byStatus: reportsByStatus,
+                mostReported: mostReported
             },
             lastUpdated: new Date().toISOString()
         };
         
-        console.log('[METRICS] Métricas calculadas com sucesso');
+        console.log('[METRICS] Métricas reais calculadas com sucesso');
+        console.log('[METRICS] Overview:', metrics.overview);
+        console.log('[METRICS] Question stats:', metrics.questionStats);
+        
         res.status(200).json(metrics);
         
     } catch (err) {
