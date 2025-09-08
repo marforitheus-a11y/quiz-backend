@@ -1039,7 +1039,31 @@ app.post('/admin/create-test-reports', authenticateToken, authorizeAdmin, async 
 
 // Admin: Test endpoint para debug
 app.get('/admin/dashboard/test', authenticateToken, authorizeAdmin, async (req, res) => {
-    res.json({ message: 'Endpoint de teste funcionando!', timestamp: new Date() });
+    console.log('[TEST] Endpoint de teste chamado');
+    res.json({ 
+        message: 'Endpoint de teste funcionando!', 
+        timestamp: new Date(),
+        user: req.user 
+    });
+});
+
+// Admin: Teste simples de métricas
+app.get('/admin/dashboard/simple', authenticateToken, authorizeAdmin, async (req, res) => {
+    try {
+        console.log('[SIMPLE] Endpoint simples de métricas chamado');
+        
+        const users = await db.query('SELECT COUNT(*) as count FROM users');
+        const questions = await db.query('SELECT COUNT(*) as count FROM questions');
+        
+        res.json({
+            users: users.rows[0].count,
+            questions: questions.rows[0].count,
+            timestamp: new Date()
+        });
+    } catch (err) {
+        console.error('[SIMPLE] Erro:', err);
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // Admin: Dashboard Metrics (versão com dados reais)
