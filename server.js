@@ -818,6 +818,30 @@ app.post('/report-error-correct', authenticateToken, async (req, res) => {
 });
 
 // Endpoint para correção final - classificar questões sem categoria
+// Endpoint de teste simples
+app.post('/public/test-classification', async (req, res) => {
+    try {
+        console.log('Testando conexão básica...');
+        
+        const testResult = await pool.query('SELECT COUNT(*) as total FROM questions');
+        const totalQuestions = testResult.rows[0].total;
+        
+        res.status(200).json({
+            success: true,
+            message: 'Teste básico funcionando',
+            totalQuestions: totalQuestions
+        });
+        
+    } catch (error) {
+        console.error('Erro no teste básico:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Erro no teste básico',
+            error: error.message
+        });
+    }
+});
+
 app.post('/public/final-classification', async (req, res) => {
     try {
         console.log('Iniciando classificação final de questões sem categoria...');
@@ -2966,7 +2990,7 @@ app.post('/admin/themes/:id/add', authenticateToken, authorizeAdmin, upload.sing
     // Note: multipart bodies are handled by multer; we can at least log that the middleware ran
     try { console.log('[HANDLER] Content-Type:', req.get('content-type')); } catch (e) {}
     const themeId = parseInt(req.params.id, 10);
-    const { questionCount, sourceType, searchQuery } = req.body;
+    const { questionCount, sourceType, searchQuery, categoryId } = req.body;
     const file = req.file;
     if (!themeId || !questionCount) return res.status(400).json({ message: 'ID do tema e quantidade de questões são obrigatórios.' });
     try {
