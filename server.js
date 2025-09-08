@@ -231,41 +231,105 @@ Texto base: ${text.substring(0, 50000)}`;
         const responseText = result.response.text().trim();
         console.log('Raw response from AI:', responseText.substring(0, 300));
         
-        // Limpar resposta e extrair JSON
-        let cleanResponse = responseText;
-        
-        // Remover markdown se presente
-        cleanResponse = cleanResponse.replace(/```json\s*/g, '').replace(/```\s*/g, '');
-        
-        // Encontrar início e fim do array
-        const startIndex = cleanResponse.indexOf('[');
-        const lastIndex = cleanResponse.lastIndexOf(']');
-        
-        if (startIndex === -1 || lastIndex === -1) {
-            throw new Error('Resposta da IA não contém um array JSON válido');
-        }
-        
-        const jsonString = cleanResponse.substring(startIndex, lastIndex + 1);
-        
-        try {
-            const questions = JSON.parse(jsonString);
-            if (!Array.isArray(questions)) {
-                throw new Error('Resposta não é um array');
+        // Função robusta para extrair e validar JSON
+        function parseAIResponse(responseText) {
+            let cleanResponse = responseText.trim();
+            
+            // Remover markdown se presente
+            cleanResponse = cleanResponse.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
+            
+            // Tentar encontrar array JSON
+            let jsonString = '';
+            
+            // Estratégia 1: Procurar array completo
+            const startIndex = cleanResponse.indexOf('[');
+            const lastIndex = cleanResponse.lastIndexOf(']');
+            
+            if (startIndex !== -1 && lastIndex !== -1 && lastIndex > startIndex) {
+                jsonString = cleanResponse.substring(startIndex, lastIndex + 1);
+                
+                try {
+                    const parsed = JSON.parse(jsonString);
+                    if (Array.isArray(parsed)) {
+                        return parsed;
+                    }
+                } catch (e) {
+                    console.log('Estratégia 1 falhou:', e.message);
+                }
             }
             
-            // Validar estrutura das questões
-            const validQuestions = questions.filter(q => 
-                q.question && q.options && Array.isArray(q.options) && q.answer
-            ).slice(0, count); // Limitar ao número solicitado
+            // Estratégia 2: Procurar por linhas que começam com "{"
+            const lines = cleanResponse.split('\n');
+            const questionObjects = [];
+            let currentObj = '';
+            let braceCount = 0;
             
-            console.log(`Successfully parsed ${validQuestions.length} questions`);
-            return validQuestions;
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (trimmed.startsWith('{') || braceCount > 0) {
+                    currentObj += trimmed + '\n';
+                    braceCount += (trimmed.match(/\{/g) || []).length;
+                    braceCount -= (trimmed.match(/\}/g) || []).length;
+                    
+                    if (braceCount === 0 && currentObj.trim()) {
+                        try {
+                            const obj = JSON.parse(currentObj.trim());
+                            if (obj.question && obj.options && obj.answer) {
+                                questionObjects.push(obj);
+                            }
+                        } catch (e) {
+                            console.log('Falha ao parsear objeto:', e.message);
+                        }
+                        currentObj = '';
+                    }
+                }
+            }
             
-        } catch (parseError) {
-            console.error('JSON parse error:', parseError.message);
-            console.error('Problematic JSON:', jsonString.substring(0, 500));
-            throw new Error(`Erro ao fazer parse do JSON: ${parseError.message}`);
+            if (questionObjects.length > 0) {
+                return questionObjects;
+            }
+            
+            // Estratégia 3: Regex para encontrar objetos JSON
+            const regex = /\{[^}]*"question"[^}]*\}/g;
+            const matches = cleanResponse.match(regex);
+            if (matches) {
+                for (const match of matches) {
+                    try {
+                        const obj = JSON.parse(match);
+                        if (obj.question && obj.options && obj.answer) {
+                            questionObjects.push(obj);
+                        }
+                    } catch (e) {
+                        console.log('Regex parse falhou:', e.message);
+                    }
+                }
+            }
+            
+            return questionObjects;
         }
+        
+        const questions = parseAIResponse(responseText);
+        
+        if (!Array.isArray(questions) || questions.length === 0) {
+            throw new Error('Não foi possível extrair questões válidas da resposta da IA');
+        }
+        
+        // Validar e limitar questões
+        const validQuestions = questions.filter(q => 
+            q.question && 
+            q.options && 
+            Array.isArray(q.options) && 
+            q.options.length >= 4 && 
+            q.answer
+        ).slice(0, count);
+        
+        console.log(`Successfully parsed ${validQuestions.length} questions from ${questions.length} candidates`);
+        
+        if (validQuestions.length === 0) {
+            throw new Error('Nenhuma questão válida foi encontrada na resposta da IA');
+        }
+        
+        return validQuestions;
         
     } catch (error) {
         console.error("Erro na geração de questões pela IA:", error);
@@ -334,41 +398,105 @@ REGRAS:
         const responseText = result.response.text().trim();
         console.log('Raw response from topic generation:', responseText.substring(0, 300));
         
-        // Limpar resposta e extrair JSON
-        let cleanResponse = responseText;
-        
-        // Remover markdown se presente
-        cleanResponse = cleanResponse.replace(/```json\s*/g, '').replace(/```\s*/g, '');
-        
-        // Encontrar início e fim do array
-        const startIndex = cleanResponse.indexOf('[');
-        const lastIndex = cleanResponse.lastIndexOf(']');
-        
-        if (startIndex === -1 || lastIndex === -1) {
-            throw new Error('Resposta da IA não contém um array JSON válido');
-        }
-        
-        const jsonString = cleanResponse.substring(startIndex, lastIndex + 1);
-        
-        try {
-            const questions = JSON.parse(jsonString);
-            if (!Array.isArray(questions)) {
-                throw new Error('Resposta não é um array');
+        // Usar a mesma função robusta de parsing
+        function parseAIResponse(responseText) {
+            let cleanResponse = responseText.trim();
+            
+            // Remover markdown se presente
+            cleanResponse = cleanResponse.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
+            
+            // Tentar encontrar array JSON
+            let jsonString = '';
+            
+            // Estratégia 1: Procurar array completo
+            const startIndex = cleanResponse.indexOf('[');
+            const lastIndex = cleanResponse.lastIndexOf(']');
+            
+            if (startIndex !== -1 && lastIndex !== -1 && lastIndex > startIndex) {
+                jsonString = cleanResponse.substring(startIndex, lastIndex + 1);
+                
+                try {
+                    const parsed = JSON.parse(jsonString);
+                    if (Array.isArray(parsed)) {
+                        return parsed;
+                    }
+                } catch (e) {
+                    console.log('Estratégia 1 falhou:', e.message);
+                }
             }
             
-            // Validar estrutura das questões
-            const validQuestions = questions.filter(q => 
-                q.question && q.options && Array.isArray(q.options) && q.answer
-            ).slice(0, count);
+            // Estratégia 2: Procurar por linhas que começam com "{"
+            const lines = cleanResponse.split('\n');
+            const questionObjects = [];
+            let currentObj = '';
+            let braceCount = 0;
             
-            console.log(`Successfully parsed ${validQuestions.length} topic questions`);
-            return validQuestions;
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (trimmed.startsWith('{') || braceCount > 0) {
+                    currentObj += trimmed + '\n';
+                    braceCount += (trimmed.match(/\{/g) || []).length;
+                    braceCount -= (trimmed.match(/\}/g) || []).length;
+                    
+                    if (braceCount === 0 && currentObj.trim()) {
+                        try {
+                            const obj = JSON.parse(currentObj.trim());
+                            if (obj.question && obj.options && obj.answer) {
+                                questionObjects.push(obj);
+                            }
+                        } catch (e) {
+                            console.log('Falha ao parsear objeto:', e.message);
+                        }
+                        currentObj = '';
+                    }
+                }
+            }
             
-        } catch (parseError) {
-            console.error('JSON parse error in topic generation:', parseError.message);
-            console.error('Problematic JSON:', jsonString.substring(0, 500));
-            throw new Error(`Erro ao fazer parse do JSON: ${parseError.message}`);
+            if (questionObjects.length > 0) {
+                return questionObjects;
+            }
+            
+            // Estratégia 3: Regex para encontrar objetos JSON
+            const regex = /\{[^}]*"question"[^}]*\}/g;
+            const matches = cleanResponse.match(regex);
+            if (matches) {
+                for (const match of matches) {
+                    try {
+                        const obj = JSON.parse(match);
+                        if (obj.question && obj.options && obj.answer) {
+                            questionObjects.push(obj);
+                        }
+                    } catch (e) {
+                        console.log('Regex parse falhou:', e.message);
+                    }
+                }
+            }
+            
+            return questionObjects;
         }
+        
+        const questions = parseAIResponse(responseText);
+        
+        if (!Array.isArray(questions) || questions.length === 0) {
+            throw new Error('Não foi possível extrair questões válidas da resposta da IA');
+        }
+        
+        // Validar e limitar questões
+        const validQuestions = questions.filter(q => 
+            q.question && 
+            q.options && 
+            Array.isArray(q.options) && 
+            q.options.length >= 4 && 
+            q.answer
+        ).slice(0, count);
+        
+        console.log(`Successfully parsed ${validQuestions.length} topic questions from ${questions.length} candidates`);
+        
+        if (validQuestions.length === 0) {
+            throw new Error('Nenhuma questão válida foi encontrada na resposta da IA');
+        }
+        
+        return validQuestions;
         
     } catch (err) {
         console.error('Erro generateQuestionsFromTopic:', err && err.message ? err.message : err);
@@ -2493,81 +2621,43 @@ app.get('/admin/dashboard/metrics', authenticateToken, authorizeAdmin, async (re
         
         console.log('[METRICS] Questões por dificuldade:', difficultyResult.rows);
         
-        // Questões por categoria (dados reais - top 10) - com correção
+        // Questões por categoria (dados reais - usando a mesma lógica do gerenciamento)
         console.log('[METRICS] Buscando questões por categoria...');
         
         // Primeiro garantir que as questões têm categoria
         let categoryResult;
         try {
-            // Tentar a query original primeiro
+            // Usar a mesma lógica do /admin/questions que está funcionando corretamente
+            const categoriaResult = await db.query(`SELECT id FROM categories WHERE name = 'Sem Categoria'`);
+            let semCategoriaId;
+            if (categoriaResult.rows.length === 0) {
+                const insertResult = await db.query(`INSERT INTO categories (name) VALUES ('Sem Categoria') RETURNING id`);
+                semCategoriaId = insertResult.rows[0].id;
+            } else {
+                semCategoriaId = categoriaResult.rows[0].id;
+            }
+            
+            // Update questions without category to use "Sem Categoria"
+            await db.query(`UPDATE questions SET category_id = $1 WHERE category_id IS NULL`, [semCategoriaId]);
+            
+            // Query principal: usar a mesma lógica que funciona no gerenciamento
             categoryResult = await db.query(`
                 SELECT 
-                    c.name, 
+                    COALESCE(c.name, 'Sem Categoria') as name,
                     COUNT(q.id) as count 
-                FROM categories c
-                LEFT JOIN questions q ON c.id = q.category_id
-                GROUP BY c.id, c.name
+                FROM questions q
+                LEFT JOIN themes t ON q.theme_id = t.id
+                LEFT JOIN categories c ON COALESCE(t.category_id, q.category_id) = c.id
+                GROUP BY COALESCE(c.name, 'Sem Categoria')
                 HAVING COUNT(q.id) > 0
                 ORDER BY count DESC
                 LIMIT 10
             `);
             
-            // Se não há questões com categoria, executar correção automática
-            if (categoryResult.rows.length === 0 || 
-                (categoryResult.rows.length === 1 && categoryResult.rows[0].name === 'Sem Categoria')) {
-                
-                console.log('[METRICS] Poucas categorias encontradas, executando correção automática...');
-                
-                // Garantir que "Sem Categoria" existe
-                let semCategoriaId;
-                const semCategoriaResult = await db.query('SELECT id FROM categories WHERE name = $1', ['Sem Categoria']);
-                if (semCategoriaResult.rows.length === 0) {
-                    const insertResult = await db.query('INSERT INTO categories (name) VALUES ($1) RETURNING id', ['Sem Categoria']);
-                    semCategoriaId = insertResult.rows[0].id;
-                } else {
-                    semCategoriaId = semCategoriaResult.rows[0].id;
-                }
-                
-                // Atualizar questões sem categoria
-                const updateResult = await db.query('UPDATE questions SET category_id = $1 WHERE category_id IS NULL', [semCategoriaId]);
-                console.log(`[METRICS] ${updateResult.rowCount} questões atualizadas com "Sem Categoria"`);
-                
-                // Criar algumas categorias padrão se não existirem
-                const defaultCategories = ['Português', 'Matemática', 'História', 'Geografia', 'Ciências'];
-                for (const catName of defaultCategories) {
-                    const exists = await db.query('SELECT id FROM categories WHERE name = $1', [catName]);
-                    if (exists.rows.length === 0) {
-                        await db.query('INSERT INTO categories (name) VALUES ($1)', [catName]);
-                        console.log(`[METRICS] Categoria "${catName}" criada`);
-                    }
-                }
-                
-                // Tentar reclassificar algumas questões baseadas no conteúdo
-                try {
-                    // Português
-                    const portuguesUpdate = await db.query(`
-                        UPDATE questions 
-                        SET category_id = (SELECT id FROM categories WHERE name = 'Português' LIMIT 1)
-                        WHERE category_id = $1 
-                        AND (question ~* 'português|gramática|ortografia|literatura' 
-                             OR array_to_string(options, ' ') ~* 'português|gramática|ortografia')
-                    `, [semCategoriaId]);
-                    
-                    // Matemática
-                    const matematicaUpdate = await db.query(`
-                        UPDATE questions 
-                        SET category_id = (SELECT id FROM categories WHERE name = 'Matemática' LIMIT 1)
-                        WHERE category_id = $1 
-                        AND (question ~* 'matemática|número|equação|função|cálculo' 
-                             OR array_to_string(options, ' ') ~* 'matemática|número|equação')
-                    `, [semCategoriaId]);
-                    
-                    console.log(`[METRICS] Reclassificação: ${portuguesUpdate.rowCount} português, ${matematicaUpdate.rowCount} matemática`);
-                } catch (reclassErr) {
-                    console.log('[METRICS] Erro na reclassificação:', reclassErr.message);
-                }
-                
-                // Executar query novamente
+        } catch (catErr) {
+            console.log('[METRICS] Erro ao buscar categorias:', catErr.message);
+            // Fallback: buscar de forma mais simples
+            try {
                 categoryResult = await db.query(`
                     SELECT 
                         c.name, 
@@ -2579,14 +2669,10 @@ app.get('/admin/dashboard/metrics', authenticateToken, authorizeAdmin, async (re
                     ORDER BY count DESC
                     LIMIT 10
                 `);
+            } catch (fallbackErr) {
+                console.log('[METRICS] Erro no fallback:', fallbackErr.message);
+                categoryResult = { rows: [] };
             }
-        } catch (catErr) {
-            console.log('[METRICS] Erro ao buscar categorias:', catErr.message);
-            // Fallback: criar dados fictícios temporários
-            categoryResult = { rows: [
-                { name: 'Sem Categoria', count: totalQuestionsResult.rows[0].count },
-                { name: 'Aguardando Classificação', count: 0 }
-            ]};
         }
         
         console.log('[METRICS] Questões por categoria:', categoryResult.rows);
