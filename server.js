@@ -1464,6 +1464,206 @@ app.post('/admin/fix-categories-advanced', authenticateToken, authorizeAdmin, as
     }
 });
 
+// Endpoint público temporário para correção de categorias (SEM autenticação)
+app.post('/public/fix-categories-emergency', async (req, res) => {
+    try {
+        console.log('[EMERGENCY] Executando correção de emergência de categorias...');
+        
+        // Verificar estrutura atual
+        const currentStats = await db.query(`
+            SELECT 
+                c.name, 
+                COUNT(q.id) as count 
+            FROM categories c
+            LEFT JOIN questions q ON c.id = q.category_id
+            GROUP BY c.id, c.name
+            ORDER BY count DESC
+        `);
+        
+        console.log('[EMERGENCY] Estatísticas atuais:', currentStats.rows);
+        
+        // Buscar IDs das categorias
+        const categories = await db.query('SELECT id, name FROM categories ORDER BY name');
+        const categoryMap = {};
+        categories.rows.forEach(cat => {
+            categoryMap[cat.name] = cat.id;
+        });
+        
+        // Garantir que categorias essenciais existam
+        const essentialCategories = [
+            'Português', 'Matemática', 'História', 'Geografia', 'Ciências', 
+            'Física', 'Química', 'Biologia', 'Literatura', 'Inglês'
+        ];
+        
+        for (const catName of essentialCategories) {
+            if (!categoryMap[catName]) {
+                const result = await db.query('INSERT INTO categories (name) VALUES ($1) RETURNING id', [catName]);
+                categoryMap[catName] = result.rows[0].id;
+                console.log(`[EMERGENCY] Categoria "${catName}" criada`);
+            }
+        }
+        
+        // Garantir "Sem Categoria"
+        let semCategoriaId = categoryMap['Sem Categoria'];
+        if (!semCategoriaId) {
+            const result = await db.query('INSERT INTO categories (name) VALUES ($1) RETURNING id', ['Sem Categoria']);
+            semCategoriaId = result.rows[0].id;
+            categoryMap['Sem Categoria'] = semCategoriaId;
+        }
+        
+        // Buscar questões para reclassificar
+        const questionsToFix = await db.query(`
+            SELECT id, question, options
+            FROM questions 
+            WHERE category_id IS NULL OR category_id = $1
+            ORDER BY id
+        `, [semCategoriaId]);
+        
+        console.log(`[EMERGENCY] Encontradas ${questionsToFix.rows.length} questões para reclassificar`);
+        
+        // Regras de classificação simplificadas
+        const classificationRules = [
+            {
+                category: 'Português',
+                patterns: [
+                    /português|gramática|ortografia|literatura|texto|interpretação/i,
+                    /verbo|substantivo|adjetivo|pronome|artigo/i,
+                    /concordância|regência|crase|acentuação/i
+                ]
+            },
+            {
+                category: 'Matemática',
+                patterns: [
+                    /matemática|número|equação|função|cálculo|álgebra/i,
+                    /soma|subtração|multiplicação|divisão|porcentagem/i,
+                    /\b\d+\s*[\+\-\*\/]\s*\d+/,
+                    /x\s*[\+\-\*\/=]\s*\d+/
+                ]
+            },
+            {
+                category: 'História',
+                patterns: [
+                    /história|histórico|império|república|revolução/i,
+                    /brasil colônia|independência|proclamação/i,
+                    /guerra|idade média|renascimento/i
+                ]
+            },
+            {
+                category: 'Geografia',
+                patterns: [
+                    /geografia|geográfica|clima|relevo|vegetação/i,
+                    /brasil|região|estado|capital|cidade/i,
+                    /amazônia|cerrado|caatinga/i
+                ]
+            },
+            {
+                category: 'Ciências',
+                patterns: [
+                    /ciência|científico|experimento|laboratório/i,
+                    /átomo|molécula|elemento|químico/i,
+                    /célula|organismo|sistema|órgão/i
+                ]
+            }
+        ];
+        
+        // Classificar questões
+        let reclassified = 0;
+        const byCategory = {};
+        
+        for (const question of questionsToFix.rows) {
+            const fullText = `${question.question} ${question.options ? question.options.join(' ') : ''}`;
+            let classified = false;
+            
+            for (const rule of classificationRules) {
+                if (!classified && categoryMap[rule.category]) {
+                    for (const pattern of rule.patterns) {
+                        if (pattern.test(fullText)) {
+                            await db.query(
+                                'UPDATE questions SET category_id = $1 WHERE id = $2',
+                                [categoryMap[rule.category], question.id]
+                            );
+                            
+                            reclassified++;
+                            byCategory[rule.category] = (byCategory[rule.category] || 0) + 1;
+                            classified = true;
+                            break;
+                        }
+                    }
+                    if (classified) break;
+                }
+            }
+        }
+        
+        // Distribuir restantes
+        const remaining = await db.query(`
+            SELECT COUNT(*) as count 
+            FROM questions 
+            WHERE category_id = $1
+        `, [semCategoriaId]);
+        
+        const remainingCount = parseInt(remaining.rows[0].count);
+        
+        if (remainingCount > 50) {
+            const mainCategories = ['Português', 'Matemática', 'História', 'Geografia', 'Ciências'];
+            const questionsPerCategory = Math.floor(remainingCount / mainCategories.length);
+            
+            for (let i = 0; i < mainCategories.length; i++) {
+                const catName = mainCategories[i];
+                if (categoryMap[catName]) {
+                    const limit = i === mainCategories.length - 1 ? 
+                        remainingCount - (questionsPerCategory * i) : 
+                        questionsPerCategory;
+                    
+                    const result = await db.query(`
+                        UPDATE questions 
+                        SET category_id = $1 
+                        WHERE id IN (
+                            SELECT id 
+                            FROM questions 
+                            WHERE category_id = $2 
+                            ORDER BY id 
+                            LIMIT $3
+                        )
+                    `, [categoryMap[catName], semCategoriaId, limit]);
+                    
+                    byCategory[catName] = (byCategory[catName] || 0) + result.rowCount;
+                }
+            }
+        }
+        
+        // Estatísticas finais
+        const finalStats = await db.query(`
+            SELECT 
+                c.name, 
+                COUNT(q.id) as count 
+            FROM categories c
+            LEFT JOIN questions q ON c.id = q.category_id
+            GROUP BY c.id, c.name
+            HAVING COUNT(q.id) > 0
+            ORDER BY count DESC
+        `);
+        
+        console.log('[EMERGENCY] Estatísticas finais:', finalStats.rows);
+        
+        res.status(200).json({
+            message: 'Correção de emergência concluída!',
+            reclassified: reclassified,
+            byCategory: byCategory,
+            finalStats: finalStats.rows.map(row => ({
+                category: row.name,
+                count: parseInt(row.count)
+            }))
+        });
+        
+    } catch (err) {
+        console.error('[EMERGENCY] Erro na correção de emergência:', err);
+        res.status(500).json({ 
+            message: 'Erro na correção de emergência.', 
+            error: err.message 
+        });
+    }
+});
+
 // Admin: Test endpoint para debug
 app.get('/admin/dashboard/test', authenticateToken, authorizeAdmin, async (req, res) => {
     console.log('[TEST] Endpoint de teste chamado');
