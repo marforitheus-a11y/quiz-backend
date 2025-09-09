@@ -1200,6 +1200,48 @@ app.get('/message', authenticateToken, (req, res) => {
     }
 });
 
+// Endpoint para estatísticas do usuário
+app.get('/user/stats', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        
+        // Buscar estatísticas do usuário no banco de dados
+        const query = `
+            SELECT 
+                COUNT(*) as total_quizzes,
+                AVG(CASE WHEN score IS NOT NULL THEN score ELSE 0 END) as avg_score,
+                MAX(score) as best_score,
+                SUM(CASE WHEN score >= 70 THEN 1 ELSE 0 END) as quizzes_passed
+            FROM quiz_sessions 
+            WHERE user_id = $1 AND completed = true
+        `;
+        
+        const result = await pool.query(query, [userId]);
+        const stats = result.rows[0];
+        
+        // Calcular precisão (accuracy) baseada na pontuação média
+        const accuracy = stats.avg_score ? Math.round(parseFloat(stats.avg_score)) : 0;
+        
+        res.json({
+            accuracy: accuracy,
+            totalQuizzes: parseInt(stats.total_quizzes) || 0,
+            averageScore: stats.avg_score ? Math.round(parseFloat(stats.avg_score)) : 0,
+            bestScore: stats.best_score ? Math.round(parseFloat(stats.best_score)) : 0,
+            quizzesPassed: parseInt(stats.quizzes_passed) || 0
+        });
+    } catch (error) {
+        console.error('Erro ao buscar estatísticas do usuário:', error);
+        // Retornar valores padrão em caso de erro
+        res.json({
+            accuracy: 0,
+            totalQuizzes: 0,
+            averageScore: 0,
+            bestScore: 0,
+            quizzesPassed: 0
+        });
+    }
+});
+
 app.get('/themes', authenticateToken, async (req, res) => {
     try {
         // Ensure categories table exists (safeguard for freshly created DBs)
