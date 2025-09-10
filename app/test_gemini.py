@@ -6,7 +6,7 @@ import json
 # Pega as credenciais do ambiente, exatamente como sua aplicação faz
 api_key = os.getenv("GEMINI_API_KEY")
 # Usa a URL correta que corrigimos anteriormente
-api_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
+api_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent"
 
 print("--- Iniciando teste de API do Gemini ---")
 
