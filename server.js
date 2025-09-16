@@ -28,6 +28,7 @@ const authRoutes = require('./app/auth_routes.js');
 // --- 2. INICIALIZAÇÃO DE VARIÁVEIS E CLIENTES ---
 const JWT_SECRET = process.env.JWT_SECRET;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash-exp';
 const IMGBB_API_KEY = process.env.IMGBB_API_KEY;
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
@@ -286,7 +287,7 @@ function authorizeAdmin(req, res, next) {
 async function generateQuestionsFromText(text, count) {
     try {
         console.log(`IA: Chamando API para gerar ${count} questões...`);
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+        const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
         
         // Prompt melhorado para evitar respostas malformadas
         const prompt = `Você deve gerar exatamente ${count} questões de múltipla escolha baseadas no texto fornecido.
@@ -588,7 +589,7 @@ REGRAS CRÍTICAS:
 async function generateQuestionsFromTopic(topic, count, difficulty = 'easy') {
     try {
         console.log(`IA: gerando ${count} questões diretamente a partir do tópico: ${topic} (dificuldade: ${difficulty})`);
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+        const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
         
         let prompt;
         if (difficulty === 'rag') {
@@ -729,7 +730,7 @@ REGRAS:
 async function generateTopicSummary(topic) {
     try {
     console.log('generateTopicSummary: asking generative model for topic summary:', topic);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
     const prompt = `For the topic: "${topic}", produce a clear, factual summary of up to 4000 characters suitable as source material for creating multiple choice questions. Use neutral tone and include key definitions, principles and examples where appropriate. Return only the plain text summary.`;
     const result = await model.generateContent(prompt);
     const text = result.response.text();
@@ -1713,7 +1714,7 @@ app.post('/report-error-correct', authenticateToken, async (req, res) => {
 
         // Ask the generative model for a suggested correction: provide question, options, claimed answer
         // Prompt the model to return a short suggestion explaining the issue and a corrected answer if applicable.
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5" });
+        const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
         const prompt = `Você é um assistente que corrige questões de múltipla escolha. Aqui está a questão reportada:\n\n${JSON.stringify(question)}\n\nRelato do usuário: ${details}\n\nVerifique se a alternativa correta está correta e, se não estiver, indique qual alternativa (A-E) deveria ser a correta e explique em 2-3 linhas por que, citando referências conceituais (se aplicável). Responda apenas com JSON: {"correct": "A|B|C|D|E|null", "explanation": "..."}`;
         const result = await model.generateContent(prompt);
         const responseText = result.response.text();
@@ -3974,7 +3975,7 @@ app.post('/admin/themes', authenticateToken, authorizeAdmin, upload.single('pdfF
             if (difficulty && difficulty !== 'easy') {
                 try {
                     const prompt = buildPromptForDifficulty(data.text, questionCount, difficulty);
-                    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+                    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
                     const result = await model.generateContent(prompt);
                     const responseText = result.response.text();
                     console.log('Raw response for difficulty generation:', responseText.substring(0, 500));
@@ -4095,7 +4096,7 @@ app.post('/admin/themes/:id/add', authenticateToken, authorizeAdmin, upload.sing
                 // re-run a targeted generation with difficulty-aware prompt if desired (light approach: prepend difficulty note)
                 const prompt = buildPromptForDifficulty(data.text, questionCount, difficulty);
                 try {
-                    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+                    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
                     const result = await model.generateContent(prompt);
                     const responseText = result.response.text();
                     console.log('Raw response for PDF difficulty generation:', responseText.substring(0, 500));
