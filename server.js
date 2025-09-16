@@ -151,7 +151,7 @@ const PORT = process.env.PORT || 3000;
 
 // --- 6. CONFIGURAÇÃO DOS MIDDLEWARES GLOBAIS ---
 // CORS: allow configured frontend origins (comma-separated) and common hosting domains like vercel.app
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5500';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5500,http://localhost:8080,http://localhost:3001';
 const FRONTEND_URLS = FRONTEND_URL.split(',').map(s => s.trim()).filter(Boolean);
 const corsOptions = {
     origin: function (origin, callback) {
@@ -159,11 +159,15 @@ const corsOptions = {
         if (!origin) return callback(null, true);
         // allow explicit configured origins
         if (FRONTEND_URLS.includes(origin)) return callback(null, true);
+        // allow localhost on any port for development
+        if (origin && origin.includes('localhost')) return callback(null, true);
         // allow preview/staging domains commonly used (conservative rule)
         if (origin.includes('vercel.app') || origin.includes('netlify.app')) return callback(null, true);
-        return callback(new Error('CORS policy: This origin is not allowed'), false);
+        return callback(null, true); // TEMPORÁRIO: permitir todas as origens para debug
     },
     methods: "GET,POST,PUT,DELETE,PATCH,OPTIONS",
+    allowedHeaders: ['Content-Type', 'Authorization', 'Origin', 'X-Requested-With', 'Accept'],
+    credentials: true,
     optionsSuccessStatus: 200
 };
 app.use(cors(corsOptions));
@@ -191,9 +195,10 @@ app.use((req, res, next) => {
 
 // Basic CSP additional header (can be refined for your assets)
 app.use((req, res, next) => {
-    res.setHeader("Content-Security-Policy", "default-src 'self'; img-src 'self' data: https:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';");
+    // Relaxed CSP for development
+    res.setHeader("Content-Security-Policy", "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; img-src 'self' data: https: http:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https: http:; font-src 'self' https: http: data:; connect-src 'self' https: http:;");
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     res.setHeader('Referrer-Policy', 'no-referrer');
     next();
 });
@@ -203,6 +208,10 @@ const globalLimiter = rateLimit({ windowMs: 60 * 1000, max: 200 }); // 200 reque
 app.use(globalLimiter);
 const aiLimiter = rateLimit({ windowMs: 60 * 1000, max: 10 }); // stricter for AI endpoints
 app.use(express.json());
+
+// --- SERVIR ARQUIVOS ESTÁTICOS DO FRONTEND ---
+// Serve frontend files for development
+app.use(express.static(path.join(__dirname, '../quiz-frontend')));
 
 // --- 6.1. CONFIGURAÇÃO DE SESSÃO E AUTENTICAÇÃO (PASSPORT) ---
 app.use(session({
@@ -412,6 +421,11 @@ Texto base: ${text.substring(0, 50000)}`;
 
 // Variantes de prompt por dificuldade
 function buildPromptForDifficulty(baseText, count, difficulty) {
+    // Se for RAG, usar o prompt especializado
+    if (difficulty === 'rag') {
+        return buildRAGPrompt(baseText, count);
+    }
+    
     const base = String(baseText).slice(0, 60000);
     
     const difficultyInstructions = {
@@ -441,14 +455,148 @@ REGRAS:
 Contexto/Texto para referência: ${base}`;
 }
 
+// Função para gerar prompt RAG com JSONs incluídos
+function buildRAGPrompt(topic, count) {
+    // JSONs de exemplo incorporados no código para evitar custos de envio repetido
+    const jsonExamples = {
+        "portugues": [
+            {
+                "id": 3594844,
+                "disciplina": "Portugues",
+                "assunto": "N/I",
+                "banca": "Fundação CETREDE",
+                "instituicao": "Prefeitura de Limoeiro do Norte - CE",
+                "ano": 2025,
+                "cargo": "N/I",
+                "nivel": "N/I",
+                "modalidade": "Múltipla Escolha",
+                "enunciado": "Em relação aos tipos de linguagem, indique a alternativa que apresenta corretamente uma linguagem conotativa.",
+                "alternativas": {
+                    "A": "\"Choveu a noite toda ontem.\"",
+                    "B": "\"A reunião será às 15 horas.\"",
+                    "C": "\"O trânsito está congestionado.\"",
+                    "D": "\"Ela possui um coração de pedra.\"",
+                    "E": "\"Recebi a carta ontem.\""
+                },
+                "resposta_correta": "D"
+            }
+        ],
+        "matematica": [
+            {
+                "id": 3586967,
+                "disciplina": "Matematica",
+                "assunto": "N/I",
+                "banca": "Instituto Consulplan",
+                "instituicao": "Prefeitura de Vermelho Novo - MG",
+                "ano": 2025,
+                "cargo": "N/I",
+                "nivel": "N/I",
+                "modalidade": "Múltipla Escolha",
+                "enunciado": "A Secretaria de Cultura está construindo um novo teatro municipal, cujo telhado terá o formato de uma semiesfera. Sabendo que o raio dessa semiesfera é de 6 metros, qual será o volume interno do telhado, em metros cúbicos?(Considere π = 3.)",
+                "alternativas": {
+                    "A": "108 m³.",
+                    "B": "216 m³.",
+                    "C": "324 m³.",
+                    "D": "432 m³."
+                },
+                "resposta_correta": "D"
+            }
+        ],
+        "logica": [
+            {
+                "id": 3593398,
+                "disciplina": " Raciocinio Logico",
+                "assunto": "N/I",
+                "banca": "Instituto Consulplan",
+                "instituicao": "Prefeitura de Vermelho Novo - MG",
+                "ano": 2025,
+                "cargo": "N/I",
+                "nivel": "N/I",
+                "modalidade": "Múltipla Escolha",
+                "enunciado": "Uma loja de decoração na cidade de Vermelho Novo está desenvolvendo uma linha de produtos personalizados com palavras relacionadas às cores. Para criar designs únicos, a equipe deverá saber quantas formas diferentes poderá organizar as letras da palavra VERMELHO em seus produtos. Tendo em vista que cada letra será utilizada exatamente uma vez em cada palavra formada, quantos anagramas diferentes podem ser criados com as letras da palavra VERMELHO?",
+                "alternativas": {
+                    "A": "20.160.",
+                    "B": "40.320.",
+                    "C": "50.400.",
+                    "D": "60.480."
+                },
+                "resposta_correta": "A"
+            }
+        ],
+        "estdeficiente": [
+            {
+                "id": 3580127,
+                "disciplina": "Raciocinio Logico",
+                "assunto": "N/I",
+                "banca": "FGV",
+                "instituicao": "Prefeitura de São José dos Campos - SP",
+                "ano": 2025,
+                "cargo": "Serviço Social",
+                "nivel": "N/I",
+                "modalidade": "Múltipla Escolha",
+                "enunciado": "De acordo com o Estatuto da Pessoa com Deficiência, a definição de curatela de pessoa com deficiência constitui",
+                "alternativas": {
+                    "A": "medida protetiva extraordinária, proporcional às necessidades e às circunstâncias de cada caso, e durará o menor tempo possível.",
+                    "B": "ato obrigatório nos casos de comprometimento mental em qualquer idade ou de indivíduos com mais de 80 anos de idade.",
+                    "C": "sempre uma concessão do Ministério Público a membro da família ou responsável pelos cuidados à pessoa com deficiência por tempo indeterminado.",
+                    "D": "condição diferenciada, a ser atribuída compulsoriamente a partir do momento em que o diagnóstico de deficiência permanente é estabelecido.",
+                    "E": "determinação judicial respaldada por laudo médico a pedido de familiar ou responsável pela pessoa com deficiência."
+                },
+                "resposta_correta": "A"
+            }
+        ]
+    };
+
+    return `Você é um sistema completo de RAG, que é alimentado com arquivos JSON que contêm questões de diversos concursos públicos. 
+
+Com base nos exemplos de JSON abaixo, você deve gerar ${count} questões sobre o tema: ${topic}.
+
+EXEMPLOS DE JSON FORNECIDOS:
+${JSON.stringify(jsonExamples, null, 2)}
+
+As questões devem ser:
+- No formato dos JSON fornecidos
+- De nível de concurso público 
+- Utilizando os mesmos mecanismos que foram utilizados nas questões dos JSONs
+- Questões difíceis do mesmo nível
+- Questões de múltipla escolha em ABCDE
+- Tema: ${topic}
+- Quantidade: ${count}
+
+FORMATO DE SAÍDA OBRIGATÓRIO - responda APENAS com um array JSON válido:
+[
+  {
+    "question": "Enunciado da questão baseado nos padrões dos JSONs fornecidos",
+    "options": ["A) Primeira opção", "B) Segunda opção", "C) Terceira opção", "D) Quarta opção", "E) Quinta opção"],
+    "answer": "A) Primeira opção"
+  }
+]
+
+REGRAS CRÍTICAS:
+- Use a mesma qualidade e complexidade dos exemplos JSON
+- Mantenha o padrão de bancas de concurso (FGV, Instituto Consulplan, CETREDE, etc.)
+- Cada questão deve ter exatamente 5 opções (A, B, C, D, E) 
+- A resposta deve ser uma das opções exatas
+- Use enunciados detalhados e contextualizados como nos exemplos
+- NÃO adicione texto antes ou depois do JSON
+- NÃO use markdown ou formatação
+- Base-se nos padrões de redação e dificuldade dos exemplos fornecidos
+- Simule questões de concurso público de alta qualidade`;
+}
+
 // Generate questions directly from a topic using the generative model (no web scraping)
 async function generateQuestionsFromTopic(topic, count, difficulty = 'easy') {
     try {
-        console.log(`IA: gerando ${count} questões diretamente a partir do tópico: ${topic}`);
+        console.log(`IA: gerando ${count} questões diretamente a partir do tópico: ${topic} (dificuldade: ${difficulty})`);
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
         
-        // Prompt melhorado e específico para tópicos
-        const prompt = `Gere exatamente ${count} questões de múltipla escolha sobre: ${topic}
+        let prompt;
+        if (difficulty === 'rag') {
+            // Usar prompt RAG especializado
+            prompt = buildRAGPrompt(topic, count);
+        } else {
+            // Prompt melhorado e específico para tópicos
+            prompt = `Gere exatamente ${count} questões de múltipla escolha sobre: ${topic}
 
 FORMATO OBRIGATÓRIO - responda APENAS com um array JSON válido:
 [
@@ -466,6 +614,7 @@ REGRAS:
 - NÃO adicione texto antes ou depois do JSON
 - NÃO use markdown ou formatação
 - Foque especificamente no tópico: ${topic}`;
+        }
 
         const result = await model.generateContent(prompt);
         const responseText = result.response.text().trim();
@@ -4199,6 +4348,29 @@ app.get('/health', async (req, res) => {
         console.error('Health check error:', err && err.message ? err.message : err);
         return res.status(500).json({ status: 'error' });
     }
+});
+
+// --- ROTA PARA SERVIR O FRONTEND ---
+// Serve index.html for root path
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, '../quiz-frontend/index.html'));
+});
+
+// Serve specific frontend pages
+app.get('/quiz.html', (req, res) => {
+    res.sendFile(path.join(__dirname, '../quiz-frontend/quiz.html'));
+});
+
+app.get('/admin.html', (req, res) => {
+    res.sendFile(path.join(__dirname, '../quiz-frontend/admin.html'));
+});
+
+app.get('/conta.html', (req, res) => {
+    res.sendFile(path.join(__dirname, '../quiz-frontend/conta.html'));
+});
+
+app.get('/resultados.html', (req, res) => {
+    res.sendFile(path.join(__dirname, '../quiz-frontend/resultados.html'));
 });
 
 app.listen(PORT, () => {
