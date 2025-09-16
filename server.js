@@ -765,8 +765,22 @@ async function generateTopicSummary(topic) {
 function resolveAnswerText(q) {
     try {
         if (!q) return '';
-        const opts = Array.isArray(q.options) ? q.options : [];
-        let ans = (q.answer === null || q.answer === undefined) ? '' : String(q.answer).trim();
+        
+        // Suportar formato RAG
+        let opts = [];
+        if (Array.isArray(q.options)) {
+            opts = q.options;
+        } else if (q.alternativas && typeof q.alternativas === 'object') {
+            // Converter objeto alternativas para array
+            const letters = ['A', 'B', 'C', 'D', 'E'];
+            for (const letter of letters) {
+                if (q.alternativas[letter]) {
+                    opts.push(`${letter}) ${q.alternativas[letter]}`);
+                }
+            }
+        }
+        
+        let ans = (q.answer === null || q.answer === undefined) ? (q.resposta_correta || '') : String(q.answer).trim();
         if (!ans) return '';
 
         // If answer is a single letter like 'A' or 'b', map to option index
@@ -4036,7 +4050,20 @@ app.post('/admin/themes', authenticateToken, authorizeAdmin, upload.single('pdfF
             
             // Validação robusta antes da inserção
             const questionText = q.question || q.enunciado || '';
-            const questionOptions = q.options || q.alternativas || [];
+            let questionOptions = q.options || [];
+            
+            // Converter objeto alternativas para array options se necessário
+            if (!Array.isArray(questionOptions) && q.alternativas && typeof q.alternativas === 'object') {
+                questionOptions = [];
+                const letters = ['A', 'B', 'C', 'D', 'E'];
+                for (const letter of letters) {
+                    if (q.alternativas[letter]) {
+                        questionOptions.push(`${letter}) ${q.alternativas[letter]}`);
+                    }
+                }
+                console.log('Convertido alternativas para options:', questionOptions.length, 'opções');
+            }
+            
             const questionAnswer = resolveAnswerText(q);
             
             if (!questionText || !questionText.trim()) {
@@ -4045,7 +4072,13 @@ app.post('/admin/themes', authenticateToken, authorizeAdmin, upload.single('pdfF
             }
             
             if (!Array.isArray(questionOptions) || questionOptions.length === 0) {
-                console.error('Questão inválida - opções vazias:', q);
+                console.error('Questão inválida - opções vazias. Formato recebido:', {
+                    hasOptions: !!q.options,
+                    hasAlternativas: !!q.alternativas,
+                    alternativasType: typeof q.alternativas,
+                    alternativasKeys: q.alternativas ? Object.keys(q.alternativas) : 'N/A',
+                    finalOptionsCount: questionOptions.length
+                });
                 continue; // Pula esta questão
             }
             
@@ -4183,7 +4216,20 @@ app.post('/admin/themes/:id/add', authenticateToken, authorizeAdmin, upload.sing
             
             // Validação robusta antes da inserção
             const questionText = q.question || q.enunciado || '';
-            const questionOptions = q.options || q.alternativas || [];
+            let questionOptions = q.options || [];
+            
+            // Converter objeto alternativas para array options se necessário
+            if (!Array.isArray(questionOptions) && q.alternativas && typeof q.alternativas === 'object') {
+                questionOptions = [];
+                const letters = ['A', 'B', 'C', 'D', 'E'];
+                for (const letter of letters) {
+                    if (q.alternativas[letter]) {
+                        questionOptions.push(`${letter}) ${q.alternativas[letter]}`);
+                    }
+                }
+                console.log('Convertido alternativas para options:', questionOptions.length, 'opções');
+            }
+            
             const questionAnswer = resolveAnswerText(q);
             
             if (!questionText || !questionText.trim()) {
@@ -4192,7 +4238,13 @@ app.post('/admin/themes/:id/add', authenticateToken, authorizeAdmin, upload.sing
             }
             
             if (!Array.isArray(questionOptions) || questionOptions.length === 0) {
-                console.error('Questão inválida - opções vazias:', q);
+                console.error('Questão inválida - opções vazias. Formato recebido:', {
+                    hasOptions: !!q.options,
+                    hasAlternativas: !!q.alternativas,
+                    alternativasType: typeof q.alternativas,
+                    alternativasKeys: q.alternativas ? Object.keys(q.alternativas) : 'N/A',
+                    finalOptionsCount: questionOptions.length
+                });
                 continue; // Pula esta questão
             }
             
@@ -4247,7 +4299,20 @@ app.post('/admin/themes/:id/reset', authenticateToken, authorizeAdmin, upload.si
             
             // Validação robusta antes da inserção
             const questionText = q.question || q.enunciado || '';
-            const questionOptions = q.options || q.alternativas || [];
+            let questionOptions = q.options || [];
+            
+            // Converter objeto alternativas para array options se necessário
+            if (!Array.isArray(questionOptions) && q.alternativas && typeof q.alternativas === 'object') {
+                questionOptions = [];
+                const letters = ['A', 'B', 'C', 'D', 'E'];
+                for (const letter of letters) {
+                    if (q.alternativas[letter]) {
+                        questionOptions.push(`${letter}) ${q.alternativas[letter]}`);
+                    }
+                }
+                console.log('Convertido alternativas para options no reset:', questionOptions.length, 'opções');
+            }
+            
             const questionAnswer = resolveAnswerText(q);
             
             if (!questionText || !questionText.trim()) {
@@ -4256,7 +4321,13 @@ app.post('/admin/themes/:id/reset', authenticateToken, authorizeAdmin, upload.si
             }
             
             if (!Array.isArray(questionOptions) || questionOptions.length === 0) {
-                console.error('Questão inválida no reset - opções vazias:', q);
+                console.error('Questão inválida no reset - opções vazias. Formato recebido:', {
+                    hasOptions: !!q.options,
+                    hasAlternativas: !!q.alternativas,
+                    alternativasType: typeof q.alternativas,
+                    alternativasKeys: q.alternativas ? Object.keys(q.alternativas) : 'N/A',
+                    finalOptionsCount: questionOptions.length
+                });
                 continue; // Pula esta questão
             }
             

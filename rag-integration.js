@@ -57,7 +57,20 @@ async function salvarQuestoes(questoes, themeName, categoryId, dificuldade, res)
         
         // Validação robusta antes da inserção
         const questionText = q.question || q.enunciado || '';
-        const questionOptions = q.options || q.alternativas || [];
+        let questionOptions = q.options || [];
+        
+        // Converter objeto alternativas para array options se necessário (formato RAG)
+        if (!Array.isArray(questionOptions) && q.alternativas && typeof q.alternativas === 'object') {
+            questionOptions = [];
+            const letters = ['A', 'B', 'C', 'D', 'E'];
+            for (const letter of letters) {
+                if (q.alternativas[letter]) {
+                    questionOptions.push(`${letter}) ${q.alternativas[letter]}`);
+                }
+            }
+            console.log('RAG: Convertido alternativas para options:', questionOptions.length, 'opções');
+        }
+        
         const questionAnswer = q.answer || q.resposta_correta || '';
         
         if (!questionText || !questionText.trim()) {
@@ -65,8 +78,14 @@ async function salvarQuestoes(questoes, themeName, categoryId, dificuldade, res)
             continue; // Pula esta questão
         }
         
-        if (!Array.isArray(questionOptions) && !questionOptions) {
-            console.error('Questão RAG inválida - opções vazias:', q);
+        if (!Array.isArray(questionOptions) || questionOptions.length === 0) {
+            console.error('Questão RAG inválida - opções vazias. Formato recebido:', {
+                hasOptions: !!q.options,
+                hasAlternativas: !!q.alternativas,
+                alternativasType: typeof q.alternativas,
+                alternativasKeys: q.alternativas ? Object.keys(q.alternativas) : 'N/A',
+                finalOptionsCount: questionOptions.length
+            });
             continue; // Pula esta questão
         }
         
