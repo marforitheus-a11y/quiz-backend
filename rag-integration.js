@@ -59,6 +59,16 @@ async function salvarQuestoes(questoes, themeName, categoryId, dificuldade, res)
         const questionText = q.question || q.enunciado || '';
         let questionOptions = q.options || [];
         
+        console.log('DEBUG RAG: Analisando questão:', {
+            hasOptions: !!q.options,
+            optionsType: typeof q.options,
+            optionsValue: q.options,
+            hasAlternativas: !!q.alternativas,
+            alternativasType: typeof q.alternativas,
+            alternativasKeys: q.alternativas ? Object.keys(q.alternativas) : 'N/A',
+            isOptionsArray: Array.isArray(questionOptions)
+        });
+        
         // Converter objeto alternativas para array options se necessário (formato RAG)
         if (!Array.isArray(questionOptions) && q.alternativas && typeof q.alternativas === 'object') {
             questionOptions = [];
@@ -69,6 +79,17 @@ async function salvarQuestoes(questoes, themeName, categoryId, dificuldade, res)
                 }
             }
             console.log('RAG: Convertido alternativas para options:', questionOptions.length, 'opções');
+        }
+        
+        // Se options é um array vazio mas alternativas existe, tentar conversão mesmo assim
+        if (Array.isArray(questionOptions) && questionOptions.length === 0 && q.alternativas && typeof q.alternativas === 'object') {
+            const letters = ['A', 'B', 'C', 'D', 'E'];
+            for (const letter of letters) {
+                if (q.alternativas[letter]) {
+                    questionOptions.push(`${letter}) ${q.alternativas[letter]}`);
+                }
+            }
+            console.log('RAG: Forçada conversão de alternativas vazias para options:', questionOptions.length, 'opções');
         }
         
         const questionAnswer = q.answer || q.resposta_correta || '';

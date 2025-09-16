@@ -4052,6 +4052,16 @@ app.post('/admin/themes', authenticateToken, authorizeAdmin, upload.single('pdfF
             const questionText = q.question || q.enunciado || '';
             let questionOptions = q.options || [];
             
+            console.log('DEBUG: Analisando questão:', {
+                hasOptions: !!q.options,
+                optionsType: typeof q.options,
+                optionsValue: q.options,
+                hasAlternativas: !!q.alternativas,
+                alternativasType: typeof q.alternativas,
+                alternativasKeys: q.alternativas ? Object.keys(q.alternativas) : 'N/A',
+                isOptionsArray: Array.isArray(questionOptions)
+            });
+            
             // Converter objeto alternativas para array options se necessário
             if (!Array.isArray(questionOptions) && q.alternativas && typeof q.alternativas === 'object') {
                 questionOptions = [];
@@ -4062,6 +4072,17 @@ app.post('/admin/themes', authenticateToken, authorizeAdmin, upload.single('pdfF
                     }
                 }
                 console.log('Convertido alternativas para options:', questionOptions.length, 'opções');
+            }
+            
+            // Se options é um array vazio mas alternativas existe, tentar conversão mesmo assim
+            if (Array.isArray(questionOptions) && questionOptions.length === 0 && q.alternativas && typeof q.alternativas === 'object') {
+                const letters = ['A', 'B', 'C', 'D', 'E'];
+                for (const letter of letters) {
+                    if (q.alternativas[letter]) {
+                        questionOptions.push(`${letter}) ${q.alternativas[letter]}`);
+                    }
+                }
+                console.log('Forçada conversão de alternativas vazias para options:', questionOptions.length, 'opções');
             }
             
             const questionAnswer = resolveAnswerText(q);
@@ -4218,6 +4239,16 @@ app.post('/admin/themes/:id/add', authenticateToken, authorizeAdmin, upload.sing
             const questionText = q.question || q.enunciado || '';
             let questionOptions = q.options || [];
             
+            console.log('DEBUG generated: Analisando questão:', {
+                hasOptions: !!q.options,
+                optionsType: typeof q.options,
+                optionsValue: q.options,
+                hasAlternativas: !!q.alternativas,
+                alternativasType: typeof q.alternativas,
+                alternativasKeys: q.alternativas ? Object.keys(q.alternativas) : 'N/A',
+                isOptionsArray: Array.isArray(questionOptions)
+            });
+            
             // Converter objeto alternativas para array options se necessário
             if (!Array.isArray(questionOptions) && q.alternativas && typeof q.alternativas === 'object') {
                 questionOptions = [];
@@ -4228,6 +4259,17 @@ app.post('/admin/themes/:id/add', authenticateToken, authorizeAdmin, upload.sing
                     }
                 }
                 console.log('Convertido alternativas para options:', questionOptions.length, 'opções');
+            }
+            
+            // Se options é um array vazio mas alternativas existe, tentar conversão mesmo assim
+            if (Array.isArray(questionOptions) && questionOptions.length === 0 && q.alternativas && typeof q.alternativas === 'object') {
+                const letters = ['A', 'B', 'C', 'D', 'E'];
+                for (const letter of letters) {
+                    if (q.alternativas[letter]) {
+                        questionOptions.push(`${letter}) ${q.alternativas[letter]}`);
+                    }
+                }
+                console.log('Forçada conversão de alternativas vazias para options:', questionOptions.length, 'opções');
             }
             
             const questionAnswer = resolveAnswerText(q);
@@ -4301,6 +4343,16 @@ app.post('/admin/themes/:id/reset', authenticateToken, authorizeAdmin, upload.si
             const questionText = q.question || q.enunciado || '';
             let questionOptions = q.options || [];
             
+            console.log('DEBUG reset: Analisando questão:', {
+                hasOptions: !!q.options,
+                optionsType: typeof q.options,
+                optionsValue: q.options,
+                hasAlternativas: !!q.alternativas,
+                alternativasType: typeof q.alternativas,
+                alternativasKeys: q.alternativas ? Object.keys(q.alternativas) : 'N/A',
+                isOptionsArray: Array.isArray(questionOptions)
+            });
+            
             // Converter objeto alternativas para array options se necessário
             if (!Array.isArray(questionOptions) && q.alternativas && typeof q.alternativas === 'object') {
                 questionOptions = [];
@@ -4311,6 +4363,17 @@ app.post('/admin/themes/:id/reset', authenticateToken, authorizeAdmin, upload.si
                     }
                 }
                 console.log('Convertido alternativas para options no reset:', questionOptions.length, 'opções');
+            }
+            
+            // Se options é um array vazio mas alternativas existe, tentar conversão mesmo assim
+            if (Array.isArray(questionOptions) && questionOptions.length === 0 && q.alternativas && typeof q.alternativas === 'object') {
+                const letters = ['A', 'B', 'C', 'D', 'E'];
+                for (const letter of letters) {
+                    if (q.alternativas[letter]) {
+                        questionOptions.push(`${letter}) ${q.alternativas[letter]}`);
+                    }
+                }
+                console.log('Forçada conversão de alternativas vazias para options no reset:', questionOptions.length, 'opções');
             }
             
             const questionAnswer = resolveAnswerText(q);
