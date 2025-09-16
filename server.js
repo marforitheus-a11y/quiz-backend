@@ -701,21 +701,40 @@ REGRAS:
         const questions = parseAIResponse(responseText);
         
         if (!Array.isArray(questions) || questions.length === 0) {
+            console.error('Resposta da IA não contém questões válidas:', responseText.substring(0, 500));
             throw new Error('Não foi possível extrair questões válidas da resposta da IA');
         }
         
-        // Validar e limitar questões
-        const validQuestions = questions.filter(q => 
-            q.question && 
-            q.options && 
-            Array.isArray(q.options) && 
-            q.options.length >= 4 && 
-            q.answer
-        ).slice(0, count);
+        console.log('Questões parseadas pela IA:', questions.map(q => ({
+            hasQuestion: !!q.question,
+            hasOptions: !!q.options,
+            optionsLength: Array.isArray(q.options) ? q.options.length : 0,
+            hasAnswer: !!q.answer,
+            questionPreview: (q.question || '').substring(0, 50) + '...'
+        })));
+        
+        // Validar e limitar questões com logs mais detalhados
+        const validQuestions = questions.filter(q => {
+            const isValid = (q.question && q.question.trim()) && 
+                           (q.options && Array.isArray(q.options) && q.options.length >= 4) && 
+                           (q.answer && q.answer.trim());
+            
+            if (!isValid) {
+                console.error('Questão inválida filtrada:', {
+                    question: q.question ? q.question.substring(0, 50) + '...' : 'VAZIO',
+                    optionsValid: q.options && Array.isArray(q.options) && q.options.length >= 4,
+                    answerValid: q.answer && q.answer.trim(),
+                    fullQuestion: q
+                });
+            }
+            
+            return isValid;
+        }).slice(0, count);
         
         console.log(`Successfully parsed ${validQuestions.length} topic questions from ${questions.length} candidates`);
         
         if (validQuestions.length === 0) {
+            console.error('Todas as questões foram filtradas como inválidas. Resposta original:', responseText);
             throw new Error('Nenhuma questão válida foi encontrada na resposta da IA');
         }
         
@@ -4014,9 +4033,36 @@ app.post('/admin/themes', authenticateToken, authorizeAdmin, upload.single('pdfF
                 await db.query(`ALTER TABLE questions ADD COLUMN IF NOT EXISTS category_id INTEGER`);
                 await db.query(`ALTER TABLE questions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`);
             } catch (e) {}
+            
+            // Validação robusta antes da inserção
+            const questionText = q.question || q.enunciado || '';
+            const questionOptions = q.options || q.alternativas || [];
+            const questionAnswer = resolveAnswerText(q);
+            
+            if (!questionText || !questionText.trim()) {
+                console.error('Questão inválida - texto vazio:', q);
+                continue; // Pula esta questão
+            }
+            
+            if (!Array.isArray(questionOptions) || questionOptions.length === 0) {
+                console.error('Questão inválida - opções vazias:', q);
+                continue; // Pula esta questão
+            }
+            
+            if (!questionAnswer || !questionAnswer.trim()) {
+                console.error('Questão inválida - resposta vazia:', q);
+                continue; // Pula esta questão
+            }
+            
+            console.log('Inserindo questão válida:', {
+                question: questionText.substring(0, 50) + '...',
+                optionsCount: questionOptions.length,
+                answer: questionAnswer.substring(0, 20) + '...'
+            });
+            
             await db.query(
                 'INSERT INTO questions (theme_id, question, options, answer, difficulty, category_id) VALUES ($1, $2, $3, $4, $5, $6)',
-                [newThemeId, q.question, q.options, resolveAnswerText(q), difficulty, categoryId || null]
+                [newThemeId, questionText.trim(), questionOptions, questionAnswer.trim(), difficulty, categoryId || null]
             );
         }
         res.status(201).json({ message: `Tema '${themeName}' e ${generatedQuestions.length} questões foram adicionadas.` });
@@ -4135,11 +4181,37 @@ app.post('/admin/themes/:id/add', authenticateToken, authorizeAdmin, upload.sing
                 await db.query(`ALTER TABLE questions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`);
             } catch (e) {}
             
+            // Validação robusta antes da inserção
+            const questionText = q.question || q.enunciado || '';
+            const questionOptions = q.options || q.alternativas || [];
+            const questionAnswer = resolveAnswerText(q);
+            
+            if (!questionText || !questionText.trim()) {
+                console.error('Questão inválida - texto vazio:', q);
+                continue; // Pula esta questão
+            }
+            
+            if (!Array.isArray(questionOptions) || questionOptions.length === 0) {
+                console.error('Questão inválida - opções vazias:', q);
+                continue; // Pula esta questão
+            }
+            
+            if (!questionAnswer || !questionAnswer.trim()) {
+                console.error('Questão inválida - resposta vazia:', q);
+                continue; // Pula esta questão
+            }
+            
+            console.log('Inserindo questão válida no tema existente:', {
+                question: questionText.substring(0, 50) + '...',
+                optionsCount: questionOptions.length,
+                answer: questionAnswer.substring(0, 20) + '...'
+            });
+            
             // Get the category_id from theme if available
             const themeCategoryId = categoryId || null;
             
             await db.query('INSERT INTO questions (theme_id, question, options, answer, difficulty, category_id) VALUES ($1,$2,$3,$4,$5,$6)', 
-                [themeId, q.question, q.options, resolveAnswerText(q), difficulty, themeCategoryId]);
+                [themeId, questionText.trim(), questionOptions, questionAnswer.trim(), difficulty, themeCategoryId]);
         }
         res.status(201).json({ message: `Adicionadas ${generated.length} questões ao tema ${themeId}.` });
     } catch (err) {
@@ -4172,9 +4244,36 @@ app.post('/admin/themes/:id/reset', authenticateToken, authorizeAdmin, upload.si
                 await db.query(`ALTER TABLE questions ADD COLUMN IF NOT EXISTS category_id INTEGER`);
                 await db.query(`ALTER TABLE questions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`);
             } catch (e) {}
+            
+            // Validação robusta antes da inserção
+            const questionText = q.question || q.enunciado || '';
+            const questionOptions = q.options || q.alternativas || [];
+            const questionAnswer = resolveAnswerText(q);
+            
+            if (!questionText || !questionText.trim()) {
+                console.error('Questão inválida no reset - texto vazio:', q);
+                continue; // Pula esta questão
+            }
+            
+            if (!Array.isArray(questionOptions) || questionOptions.length === 0) {
+                console.error('Questão inválida no reset - opções vazias:', q);
+                continue; // Pula esta questão
+            }
+            
+            if (!questionAnswer || !questionAnswer.trim()) {
+                console.error('Questão inválida no reset - resposta vazia:', q);
+                continue; // Pula esta questão
+            }
+            
+            console.log('Inserindo questão válida no reset:', {
+                question: questionText.substring(0, 50) + '...',
+                optionsCount: questionOptions.length,
+                answer: questionAnswer.substring(0, 20) + '...'
+            });
+            
             await db.query(
                 'INSERT INTO questions (theme_id, question, options, answer, category_id) VALUES ($1, $2, $3, $4, $5)',
-                [id, q.question, q.options, resolveAnswerText(q), themeCategoryId]
+                [id, questionText.trim(), questionOptions, questionAnswer.trim(), themeCategoryId]
             );
         }
         res.status(200).json({ message: `Tema resetado com ${newQuestions.length} novas questões.` });

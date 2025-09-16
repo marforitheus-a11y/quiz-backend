@@ -55,9 +55,37 @@ async function salvarQuestoes(questoes, themeName, categoryId, dificuldade, res)
         await db.query(`ALTER TABLE questions ADD COLUMN IF NOT EXISTS category_id INTEGER`);
         await db.query(`ALTER TABLE questions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`);
         
+        // Validação robusta antes da inserção
+        const questionText = q.question || q.enunciado || '';
+        const questionOptions = q.options || q.alternativas || [];
+        const questionAnswer = q.answer || q.resposta_correta || '';
+        
+        if (!questionText || !questionText.trim()) {
+            console.error('Questão RAG inválida - texto vazio:', q);
+            continue; // Pula esta questão
+        }
+        
+        if (!Array.isArray(questionOptions) && !questionOptions) {
+            console.error('Questão RAG inválida - opções vazias:', q);
+            continue; // Pula esta questão
+        }
+        
+        if (!questionAnswer || !questionAnswer.trim()) {
+            console.error('Questão RAG inválida - resposta vazia:', q);
+            continue; // Pula esta questão
+        }
+        
+        console.log('Inserindo questão RAG válida:', {
+            question: questionText.substring(0, 50) + '...',
+            optionsType: Array.isArray(questionOptions) ? 'array' : typeof questionOptions,
+            answer: questionAnswer.substring(0, 20) + '...'
+        });
+        
+        const optionsToSave = Array.isArray(questionOptions) ? questionOptions : JSON.stringify(questionOptions);
+        
         await db.query(
             'INSERT INTO questions (theme_id, question, options, answer, difficulty, category_id) VALUES ($1, $2, $3, $4, $5, $6)',
-            [newThemeId, q.question, JSON.stringify(q.options), q.answer, dificuldade, categoryId || null]
+            [newThemeId, questionText.trim(), optionsToSave, questionAnswer.trim(), dificuldade, categoryId || null]
         );
     }
 }
