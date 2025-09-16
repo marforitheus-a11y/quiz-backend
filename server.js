@@ -64,6 +64,16 @@ async function ensureLgpdCompliance() {
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS data_retention_until TIMESTAMP;
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS account_deletion_requested BOOLEAN DEFAULT FALSE;
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS account_deletion_scheduled TIMESTAMP;
+                
+                -- Adicionar coluna role se não existir e garantir consistência com is_admin
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'user';
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;
+                
+                -- Sincronizar role com is_admin para usuários existentes
+                UPDATE users SET role = 'admin' WHERE is_admin = true AND role != 'admin';
+                UPDATE users SET role = 'user' WHERE is_admin = false AND role != 'user';
+                UPDATE users SET is_admin = true WHERE role = 'admin' AND is_admin = false;
+                UPDATE users SET is_admin = false WHERE role != 'admin' AND is_admin = true;
 
                 -- Criar tabela de consentimentos
                 CREATE TABLE IF NOT EXISTS user_consents (
@@ -3420,7 +3430,7 @@ app.get('/admin/dashboard/metrics', authenticateToken, authorizeAdmin, async (re
                         SELECT COUNT(*) as count 
                         FROM users 
                         WHERE created_at > CURRENT_DATE - INTERVAL '30 days'
-                        AND is_admin = false
+                        AND role != 'admin'
                     `);
                     activeUsers = parseInt(recentUsersResult.rows[0].count);
                 } catch (recentErr) {
@@ -3429,7 +3439,7 @@ app.get('/admin/dashboard/metrics', authenticateToken, authorizeAdmin, async (re
                     const totalUsersNonAdmin = await db.query(`
                         SELECT COUNT(*) as count 
                         FROM users 
-                        WHERE is_admin = false
+                        WHERE role != 'admin'
                     `);
                     const totalNonAdminUsers = parseInt(totalUsersNonAdmin.rows[0].count);
                     // Estimar que 30% dos usuários estão "ativos" nos últimos 30 dias
@@ -3448,7 +3458,7 @@ app.get('/admin/dashboard/metrics', authenticateToken, authorizeAdmin, async (re
                         MAX(qs.created_at) as last_activity
                     FROM users u
                     LEFT JOIN quiz_sessions qs ON u.id = qs.user_id
-                    WHERE u.is_admin = false
+                    WHERE u.role != 'admin'
                     GROUP BY u.id, u.username, u.email
                     ORDER BY quiz_count DESC, u.created_at DESC
                     LIMIT 5
@@ -3470,7 +3480,7 @@ app.get('/admin/dashboard/metrics', authenticateToken, authorizeAdmin, async (re
                             email,
                             created_at
                         FROM users 
-                        WHERE is_admin = false
+                        WHERE role != 'admin'
                         ORDER BY created_at DESC
                         LIMIT 5
                     `);
@@ -3491,7 +3501,7 @@ app.get('/admin/dashboard/metrics', authenticateToken, authorizeAdmin, async (re
                                 email,
                                 created_at
                             FROM users 
-                            WHERE is_admin = false
+                            WHERE role != 'admin'
                             ORDER BY id DESC
                             LIMIT 5
                         `);
@@ -3606,7 +3616,7 @@ app.get('/admin/dashboard/metrics', authenticateToken, authorizeAdmin, async (re
                     COUNT(CASE WHEN created_at > CURRENT_DATE - INTERVAL '30 days' THEN 1 END) as new_users_last_30,
                     COUNT(CASE WHEN created_at BETWEEN CURRENT_DATE - INTERVAL '60 days' AND CURRENT_DATE - INTERVAL '30 days' THEN 1 END) as new_users_prev_30
                 FROM users
-                WHERE is_admin = false
+                WHERE role != 'admin'
             `);
             
             const growth = growthResult.rows[0];
