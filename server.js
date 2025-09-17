@@ -1687,19 +1687,36 @@ app.post('/quiz/finish', authenticateToken, async (req, res) => {
     const userId = req.user.id;
     try {
         const percentage = totalQuestions > 0 ? ((score / totalQuestions) * 100).toFixed(2) : 0;
+        
+        // Salvar no quiz_history (tabela existente)
         const historyResult = await db.query(
             'INSERT INTO quiz_history (user_id, score, total_questions, percentage) VALUES ($1, $2, $3, $4) RETURNING id',
             [userId, score, totalQuestions, percentage]
         );
         const newHistoryId = historyResult.rows[0].id;
+        
+        // Salvar também no quiz_sessions para métricas do admin
+        try {
+            await db.query(
+                'INSERT INTO quiz_sessions (user_id, score, questions_answered, correct_answers) VALUES ($1, $2, $3, $4)',
+                [userId, parseFloat(percentage), totalQuestions, score]
+            );
+        } catch (sessionErr) {
+            console.log('Erro ao salvar em quiz_sessions:', sessionErr.message);
+            // Não falhar se der erro, pois quiz_history é o principal
+        }
+        
+        // Salvar respostas individuais
         for (const answer of answers) {
             await db.query(
                 'INSERT INTO user_answers (history_id, question_id, selected_option, is_correct) VALUES ($1, $2, $3, $4)',
                 [newHistoryId, answer.questionId, answer.selectedOption, answer.isCorrect]
             );
         }
+        
         res.status(201).json({ message: "Histórico salvo com sucesso!", historyId: newHistoryId });
     } catch (err) {
+        console.error('Erro ao salvar histórico:', err);
         res.status(500).json({ message: 'Erro ao salvar histórico.' });
     }
 });
