@@ -1539,28 +1539,61 @@ app.post('/questions', authenticateToken, async (req, res) => {
             }
         }
 
-        // Lógica para buscar questões
-        let qtext = 'SELECT id, question, options, answer FROM questions WHERE theme_id = ANY($1::int[])';
-        const params = [themeIds];
+        let allQuestions = [];
+
+        // Se dificuldades foram especificadas (admin), usar a lógica antiga
         if (difficulties && Array.isArray(difficulties) && difficulties.length > 0) {
-            params.push(difficulties);
-            qtext += ' AND difficulty = ANY($2::text[])';
-            qtext += ' ORDER BY RANDOM() LIMIT $3';
-            params.push(count);
+            let qtext = 'SELECT id, question, options, answer FROM questions WHERE theme_id = ANY($1::int[]) AND difficulty = ANY($2::text[]) ORDER BY RANDOM() LIMIT $3';
+            const params = [themeIds, difficulties, count];
+            const result = await db.query(qtext, params);
+            allQuestions = result.rows.map(r => sanitizeQuestionRow(r));
         } else {
-            qtext += ' ORDER BY RANDOM() LIMIT $2';
-            params.push(count);
+            // Lógica de proporção automática para usuários normais
+            // Proporção: fácil=1, médio=2, difícil=2, rag=5 (total=10)
+            const totalCount = count;
+            const proportions = {
+                easy: Math.ceil(totalCount * 1 / 10),
+                medium: Math.ceil(totalCount * 2 / 10), 
+                hard: Math.ceil(totalCount * 2 / 10),
+                rag: Math.ceil(totalCount * 5 / 10)
+            };
+
+            console.log(`Aplicando proporção automática para ${totalCount} questões:`, proportions);
+
+            // Buscar questões por dificuldade
+            for (const [difficulty, targetCount] of Object.entries(proportions)) {
+                if (targetCount > 0) {
+                    const qtext = 'SELECT id, question, options, answer FROM questions WHERE theme_id = ANY($1::int[]) AND difficulty = $2 ORDER BY RANDOM() LIMIT $3';
+                    const result = await db.query(qtext, [themeIds, difficulty, targetCount]);
+                    const questions = result.rows.map(r => sanitizeQuestionRow(r));
+                    allQuestions.push(...questions);
+                }
+            }
+
+            // Se não temos questões RAG suficientes, preencher com questões difíceis
+            const ragCount = allQuestions.filter(q => q.difficulty === 'rag').length;
+            const ragNeeded = proportions.rag;
+            if (ragCount < ragNeeded) {
+                const missingRag = ragNeeded - ragCount;
+                console.log(`Faltam ${missingRag} questões RAG, preenchendo com questões difíceis`);
+                
+                const additionalHardQuery = 'SELECT id, question, options, answer FROM questions WHERE theme_id = ANY($1::int[]) AND difficulty = $2 ORDER BY RANDOM() LIMIT $3';
+                const additionalResult = await db.query(additionalHardQuery, [themeIds, 'hard', missingRag]);
+                const additionalQuestions = additionalResult.rows.map(r => sanitizeQuestionRow(r));
+                allQuestions.push(...additionalQuestions);
+            }
+
+            // Embaralhar as questões e limitar ao count solicitado
+            allQuestions = allQuestions.sort(() => Math.random() - 0.5).slice(0, totalCount);
         }
-        const result = await db.query(qtext, params);
-        const sanitized = result.rows.map(r => sanitizeQuestionRow(r));
 
         // Atualizar contagem diária para usuários não-pagantes
         if (!user.is_pay) {
-            const newCount = (user.daily_quiz_count || 0) + sanitized.length;
+            const newCount = (user.daily_quiz_count || 0) + allQuestions.length;
             await db.query('UPDATE users SET daily_quiz_count = $1 WHERE id = $2', [newCount, userId]);
         }
 
-        res.status(200).json(sanitized);
+        res.status(200).json(allQuestions);
     } catch (err) {
         console.error("Erro ao buscar questões:", err);
         res.status(500).json({ message: 'Erro ao buscar questões.' });
