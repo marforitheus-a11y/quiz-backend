@@ -1,21 +1,2 @@
-name: keep-backend-awake
-
-on:
-  schedule:
-    # every 5 minutes (GitHub Actions minimum reliable frequency)
-    - cron: '*/5 * * * *'
-  workflow_dispatch: {}
-
-jobs:
-  ping:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Ping backend health endpoint
-        env:
-          BACKEND_URL: ${{ secrets.BACKEND_URL }}
-        run: |
-          if [ -z "$BACKEND_URL" ]; then
-            echo "BACKEND_URL secret is not set"; exit 1;
-          fi
-          echo "Pinging $BACKEND_URL/health"
-          curl -fsS "$BACKEND_URL/health" || echo "ping failed"
+on: []
+# Workflow disabled.
